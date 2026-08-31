@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="btn_notif_access">Buka Pengaturan Akses Notifikasi</string>
+    <string name="label_endpoint">Endpoint URL</string>
+    <string name="label_chatid">Chat ID Telegram</string>
+    <string name="label_banks">Aplikasi Bank yang Dipantau</string>
+    <string name="label_log">Log Aktivitas</string>
+    <string name="btn_save">Simpan Konfigurasi</string>
+</resources>
