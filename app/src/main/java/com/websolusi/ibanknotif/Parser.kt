@@ -11,6 +11,7 @@ object Parser {
 
     private val BANK_PKG = mapOf(
         "com.bca" to "bca",
+        "com.bca.mybca" to "bca",
         "co.id.mandiri.livin" to "mandiri",
         "co.id.mandiri.touch" to "mandiri",
         "id.co.bri.brimo" to "bri",
@@ -19,20 +20,19 @@ object Parser {
     )
 
     private val IN_KEYWORDS = listOf(
-        "masuk", "kredit", "menerima", "terima", "diterima",
-        "received", "top up", "topup", "isi saldo", "充值",
-        "berhasil menerima", "incoming", "credit"
+        "masuk", "kredit", "menerima", "terima", "diterima", "received",
+        "top up", "topup", "isi saldo", "berhasil menerima", "incoming", "credit"
     )
 
     private val OUT_KEYWORDS = listOf(
-        "keluar", "debit", "transfer", "bayar", "beli",
+        "keluar", "debit", "transfer", "bayar", "beli", "sent", "transferred",
         "potong", "tagihan", "pembayaran", "withdrawal",
         "tarik", "pengiriman", "dikirim", "terkirim",
         "outgoing", "debit", "payment", "purchase"
     )
 
-    private val AMOUNT_RE = Regex("""Rp[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
-    private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
+    private val AMOUNT_RE = Regex("""(?:IDR|Rp)[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
+    private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp|idr)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
     private val LAST4_RE = Regex("""[.*x*]{0,5}(\d{4})\b""")
 
     fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
@@ -57,14 +57,16 @@ object Parser {
     private fun extractAmount(text: String): Long? {
         val match = AMOUNT_RE.find(text)
         if (match != null) {
-            val raw = match.groupValues[1]
+            var raw = match.groupValues[1]
+            raw = raw.replace(Regex("""[.,]\d{2}$"""), "")
             val cleaned = raw.replace(".", "").replace(",", "")
             return cleaned.toLongOrNull()
         }
         val match2 = AMOUNT_NO_RP_RE.find(text)
         if (match2 != null) {
-            val raw = match2.groupValues[1]
-            val cleaned = raw.replace(".", "")
+            var raw = match2.groupValues[1]
+            raw = raw.replace(Regex("""[.,]\d{2}$"""), "")
+            val cleaned = raw.replace(".", "").replace(",", "")
             return cleaned.toLongOrNull()
         }
         return null

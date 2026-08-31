@@ -11,9 +11,34 @@ class NotifService : NotificationListenerService() {
         "brimo" to "bri",
         "bri" to "bri",
         "bca" to "bca",
+        "mybca" to "bca",
         "livin" to "mandiri",
         "mandiri" to "mandiri"
     )
+
+    companion object {
+        var instance: NotifService? = null
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance == this) instance = null
+    }
+
+    fun scanActiveNotifications(): Int {
+        val activeNotifs = activeNotifications ?: return 0
+        var count = 0
+        for (sbn in activeNotifs) {
+            onNotificationPosted(sbn)
+            count++
+        }
+        return count
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName

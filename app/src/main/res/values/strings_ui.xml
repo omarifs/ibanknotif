@@ -6,6 +6,7 @@
     <string name="label_banks">Aplikasi Bank yang Dipantau</string>
     <string name="label_log">Log Aktivitas</string>
     <string name="btn_save">Simpan Konfigurasi</string>
+    <string name="btn_scan_active">Pindai Notifikasi Aktif Saat Ini</string>
     <string name="btn_debug">Deteksi App Bank Terpasang</string>
     <string name="btn_sync_test">Tes Kirim Manual (Simulasi Notif)</string>
     <string name="btn_clear_log">Bersihkan Log Aktivitas</string>

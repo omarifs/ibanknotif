@@ -54,6 +54,18 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Konfigurasi tersimpan", Toast.LENGTH_SHORT).show()
         }
 
+        findViewById<MaterialButton>(R.id.btnScanActive).setOnClickListener {
+            val service = NotifService.instance
+            if (service != null) {
+                Config.appendLog(this, "--- MEMINDAI NOTIFIKASI AKTIF ---")
+                val count = service.scanActiveNotifications()
+                Toast.makeText(this, "Memindai $count notifikasi aktif", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Service belum aktif. Pastikan Izin Akses Notifikasi sudah diberikan.", Toast.LENGTH_LONG).show()
+            }
+            tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
+        }
+
         findViewById<MaterialButton>(R.id.btnSyncTest).setOnClickListener {
             saveConfig()
             Config.appendLog(this, "--- TES MANUAL KONEKSI ---")

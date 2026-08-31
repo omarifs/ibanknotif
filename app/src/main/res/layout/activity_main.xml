@@ -99,6 +99,14 @@
             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnScanActive"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_scan_active"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.MaterialComponents.Button" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSyncTest"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
