@@ -38,6 +38,10 @@ object Parser {
 
     fun parse(pkg: String, text: String): Transaction? {
         val bank = BANK_PKG[pkg] ?: return null
+        return parseByBank(bank, text)
+    }
+
+    fun parseByBank(bank: String, text: String): Transaction? {
         val lower = text.lowercase()
 
         val amount = extractAmount(text) ?: return null

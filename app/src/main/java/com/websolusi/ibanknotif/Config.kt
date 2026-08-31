@@ -43,6 +43,15 @@ object Config {
         }
     }
 
+    fun isBankEnabledByLabel(label: String): Boolean {
+        return when (label) {
+            "bca" -> true
+            "mandiri" -> true
+            "bri" -> true
+            else -> false
+        }
+    }
+
     fun save(ctx: Context, endpoint: String, chatId: Long, bca: Boolean, mandiri: Boolean, bri: Boolean) {
         prefs(ctx).edit()
             .putString(KEY_ENDPOINT, endpoint)

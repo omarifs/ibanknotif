@@ -7,22 +7,29 @@ import android.os.Build
 
 class NotifService : NotificationListenerService() {
 
+    private val TITLE_BANK = mapOf(
+        "brimo" to "bri",
+        "bri" to "bri",
+        "bca" to "bca",
+        "livin" to "mandiri",
+        "mandiri" to "mandiri"
+    )
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
+        val notif = sbn.notification ?: return
+        val extras = notif.extras ?: return
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
 
-        val bank = Config.bankLabel(pkg)
+        val bank = Config.bankLabel(pkg) ?: detectBankFromTitle(title)
         if (bank == null) {
-            Config.appendLog(this, "SKIP pkg=$pkg (bukan bank)")
+            Config.appendLog(this, "SKIP pkg=$pkg title=$title (bukan bank)")
             return
         }
         Config.appendLog(this, "NOTIF bank=$bank pkg=$pkg")
 
-        if (!Config.isBankEnabled(this, pkg)) return
+        if (!Config.isBankEnabledByLabel(bank)) return
 
-        val notif = sbn.notification ?: return
-        val extras = notif.extras ?: return
-
-        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
 
@@ -30,13 +37,21 @@ class NotifService : NotificationListenerService() {
 
         Config.appendLog(this, "TEXT: $fullText")
 
-        val tx = Parser.parse(pkg, fullText) ?: run {
+        val tx = Parser.parseByBank(bank, fullText) ?: run {
             Config.appendLog(this, "NO-PARSE (jumlah/arah tidak terdeteksi)")
             return
         }
         val cmd = Parser.toCommand(tx)
         Config.appendLog(this, "SEND: $cmd")
         Sink.send(this, cmd)
+    }
+
+    private fun detectBankFromTitle(title: String): String? {
+        val lower = title.lowercase()
+        for ((key, label) in TITLE_BANK) {
+            if (lower.contains(key)) return label
+        }
+        return null
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}
