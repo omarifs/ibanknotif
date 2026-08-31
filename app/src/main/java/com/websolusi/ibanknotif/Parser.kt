@@ -33,6 +33,7 @@ object Parser {
 
     private val AMOUNT_RE = Regex("""Rp[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
     private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
+    private val LAST4_RE = Regex("""[.*x*]{0,5}(\d{4})\b""")
 
     private fun extractAmount(text: String): Long? {
         val match = AMOUNT_RE.find(text)
