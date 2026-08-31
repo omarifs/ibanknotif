@@ -22,8 +22,11 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.7
+
       - name: Build Release APK
-        run: gradle assembleRelease
+        run: ./gradlew assembleRelease
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
