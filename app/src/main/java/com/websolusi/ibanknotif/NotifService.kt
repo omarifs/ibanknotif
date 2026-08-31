@@ -51,13 +51,18 @@ class NotifService : NotificationListenerService() {
     @Deprecated("")
     fun listInstalledBanks() {
         val pm = packageManager
-        val p1 = pm.getInstalledApplications(0).filter {
-            it.packageName.contains("bri") || it.packageName.contains("brimo")
-        }.map { it.packageName }
-        Config.appendLog(this, "BRI app terpasang: ${p1.joinToString()}")
-        val p2 = pm.getInstalledApplications(0).filter {
-            it.packageName.contains("mandiri")
-        }.map { it.packageName }
-        Config.appendLog(this, "Mandiri app terpasang: ${p2.joinToString()}")
+        val allApps = pm.getInstalledApplications(0)
+        
+        val keywords = listOf("bri", "brimo", "mandiri", "bca", "bank")
+        val matches = allApps.filter { app ->
+            val label = app.loadLabel(pm).toString().lowercase()
+            val pkg = app.packageName.lowercase()
+            keywords.any { kw -> label.contains(kw) || pkg.contains(kw) }
+        }.map { "${it.loadLabel(pm)} [${it.packageName}]" }
+        
+        Config.appendLog(this, "Bank apps terpasang:")
+        matches.forEach { Config.appendLog(this, "  $it") }
+        
+        if (matches.isEmpty()) Config.appendLog(this, "  (tidak ditemukan)")
     }
 }
