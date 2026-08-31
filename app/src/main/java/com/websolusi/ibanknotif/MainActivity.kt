@@ -53,6 +53,19 @@ class MainActivity : AppCompatActivity() {
             saveConfig()
             Toast.makeText(this, "Pengaturan tersimpan", Toast.LENGTH_SHORT).show()
         }
+
+        findViewById<MaterialButton>(R.id.btnTrigger).setOnClickListener {
+            saveConfig()
+            val service = NotifService.instance
+            if (service != null) {
+                Config.appendLog(this, "--- PEMINDAIAN MANUAL NOTIFIKASI AKTIF ---")
+                val count = service.scanActiveNotifications()
+                Toast.makeText(this, "Memindai $count notifikasi aktif di HP...", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Service belum berjalan. Buka Izin Notifikasi dahulu.", Toast.LENGTH_LONG).show()
+            }
+            tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
+        }
     }
 
     override fun onResume() {

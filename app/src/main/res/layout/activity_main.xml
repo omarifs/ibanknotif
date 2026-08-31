@@ -72,11 +72,19 @@
             android:checked="true" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTrigger"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_trigger"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSave"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/btn_save"
-            android:layout_marginTop="12dp" />
+            android:layout_marginTop="8dp" />
 
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"

@@ -23,9 +23,29 @@ class NotifService : NotificationListenerService() {
         "mandiri" to "mandiri"
     )
 
+    companion object {
+        var instance: NotifService? = null
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
         startForegroundServiceNotification()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance == this) instance = null
+    }
+
+    fun scanActiveNotifications(): Int {
+        val activeNotifs = activeNotifications ?: return 0
+        var processed = 0
+        for (sbn in activeNotifs) {
+            onNotificationPosted(sbn)
+            processed++
+        }
+        return processed
     }
 
     private fun startForegroundServiceNotification() {

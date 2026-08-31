@@ -6,4 +6,5 @@
     <string name="label_banks">Aplikasi Bank yang Dipantau</string>
     <string name="label_log">Log Transaksi Otomatis</string>
     <string name="btn_save">Simpan Pengaturan</string>
+    <string name="btn_trigger">Pindai & Send Notifikasi Sekarang (Manual)</string>
 </resources>
