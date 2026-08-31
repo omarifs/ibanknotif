@@ -32,32 +32,22 @@ object Parser {
     )
 
     private val AMOUNT_RE = Regex("""Rp[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
-    private val LAST4_RE = Regex("""[.*x]{0,4}(\d{4})""")
-
-    fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
-
-    fun parse(pkg: String, text: String): Transaction? {
-        val bank = BANK_PKG[pkg] ?: return null
-        return parseByBank(bank, text)
-    }
-
-    fun parseByBank(bank: String, text: String): Transaction? {
-        val lower = text.lowercase()
-
-        val amount = extractAmount(text) ?: return null
-        if (amount <= 0) return null
-
-        val direction = detectDirection(lower) ?: return null
-        val last4 = extractLast4(text)
-
-        return Transaction(bank, amount, direction, last4)
-    }
+    private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
 
     private fun extractAmount(text: String): Long? {
-        val match = AMOUNT_RE.find(text) ?: return null
-        val raw = match.groupValues[1]
-        val cleaned = raw.replace(".", "").replace(",", "")
-        return cleaned.toLongOrNull()
+        val match = AMOUNT_RE.find(text)
+        if (match != null) {
+            val raw = match.groupValues[1]
+            val cleaned = raw.replace(".", "").replace(",", "")
+            return cleaned.toLongOrNull()
+        }
+        val match2 = AMOUNT_NO_RP_RE.find(text)
+        if (match2 != null) {
+            val raw = match2.groupValues[1]
+            val cleaned = raw.replace(".", "")
+            return cleaned.toLongOrNull()
+        }
+        return null
     }
 
     private fun detectDirection(lower: String): String? {
