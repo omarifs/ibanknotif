@@ -54,6 +54,22 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Konfigurasi tersimpan", Toast.LENGTH_SHORT).show()
         }
 
+        findViewById<MaterialButton>(R.id.btnSyncTest).setOnClickListener {
+            saveConfig()
+            Config.appendLog(this, "--- TES MANUAL KONEKSI ---")
+            val testCmd = "/tabin tes.manual 10000"
+            Config.appendLog(this, "Kirim: $testCmd")
+            Sink.send(this, testCmd)
+            Toast.makeText(this, "Mengirim tes manual... cek Log Aktivitas", Toast.LENGTH_SHORT).show()
+            tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
+        }
+
+        findViewById<MaterialButton>(R.id.btnClearLog).setOnClickListener {
+            Config.clearLog(this)
+            tvLog.text = ""
+            Toast.makeText(this, "Log dibersihkan", Toast.LENGTH_SHORT).show()
+        }
+
         findViewById<MaterialButton>(R.id.btnDebug).setOnClickListener {
             val intent = Intent(this, NotifService::class.java)
             startService(intent)

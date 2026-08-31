@@ -73,4 +73,8 @@ object Config {
 
     fun getLog(ctx: Context): String =
         prefs(ctx).getString(KEY_LOG, "") ?: ""
+
+    fun clearLog(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_LOG).apply()
+    }
 }
