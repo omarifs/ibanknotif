@@ -12,7 +12,10 @@ object Parser {
     private val BANK_PKG = mapOf(
         "com.bca" to "bca",
         "co.id.mandiri.livin" to "mandiri",
-        "id.co.bri.brimo" to "bri"
+        "co.id.mandiri.touch" to "mandiri",
+        "id.co.bri.brimo" to "bri",
+        "com.bri.brimo" to "bri",
+        "id.co.bri.www.brimo" to "bri"
     )
 
     private val IN_KEYWORDS = listOf(

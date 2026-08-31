@@ -21,12 +21,24 @@ object Config {
     fun chatId(ctx: Context): Long =
         prefs(ctx).getLong(KEY_CHAT_ID, -1002031892399)
 
+    private val BCA_PKGS = setOf("com.bca")
+    private val MANDIRI_PKGS = setOf("co.id.mandiri.livin", "co.id.mandiri.touch")
+    private val BRI_PKGS = setOf("id.co.bri.brimo", "com.bri.brimo", "id.co.bri.www.brimo")
+
+    fun bankLabel(pkg: String): String? = when (pkg) {
+        in BCA_PKGS -> "bca"
+        in MANDIRI_PKGS -> "mandiri"
+        in BRI_PKGS -> "bri"
+        else -> null
+    }
+
     fun isBankEnabled(ctx: Context, pkg: String): Boolean {
         val p = prefs(ctx)
-        return when (pkg) {
-            "com.bca" -> p.getBoolean(KEY_BCA, true)
-            "co.id.mandiri.livin" -> p.getBoolean(KEY_MANDIRI, true)
-            "id.co.bri.brimo" -> p.getBoolean(KEY_BRI, true)
+        val label = bankLabel(pkg) ?: return false
+        return when (label) {
+            "bca" -> p.getBoolean(KEY_BCA, true)
+            "mandiri" -> p.getBoolean(KEY_MANDIRI, true)
+            "bri" -> p.getBoolean(KEY_BRI, true)
             else -> false
         }
     }

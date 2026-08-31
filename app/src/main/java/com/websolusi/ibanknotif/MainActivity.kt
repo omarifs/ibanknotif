@@ -53,6 +53,12 @@ class MainActivity : AppCompatActivity() {
             saveConfig()
             Toast.makeText(this, "Konfigurasi tersimpan", Toast.LENGTH_SHORT).show()
         }
+
+        findViewById<MaterialButton>(R.id.btnDebug).setOnClickListener {
+            val intent = Intent(this, NotifService::class.java)
+            startService(intent)
+            Toast.makeText(this, "Cek log untuk package name", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onResume() {

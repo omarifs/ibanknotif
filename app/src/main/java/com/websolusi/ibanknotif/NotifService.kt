@@ -10,6 +10,13 @@ class NotifService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
 
+        val bank = Config.bankLabel(pkg)
+        if (bank == null) {
+            Config.appendLog(this, "SKIP pkg=$pkg (bukan bank)")
+            return
+        }
+        Config.appendLog(this, "NOTIF bank=$bank pkg=$pkg")
+
         if (!Config.isBankEnabled(this, pkg)) return
 
         val notif = sbn.notification ?: return
@@ -21,10 +28,36 @@ class NotifService : NotificationListenerService() {
 
         val fullText = "$title $text ${bigText ?: ""}"
 
-        val tx = Parser.parse(pkg, fullText) ?: return
+        Config.appendLog(this, "TEXT: $fullText")
+
+        val tx = Parser.parse(pkg, fullText) ?: run {
+            Config.appendLog(this, "NO-PARSE (jumlah/arah tidak terdeteksi)")
+            return
+        }
         val cmd = Parser.toCommand(tx)
+        Config.appendLog(this, "SEND: $cmd")
         Sink.send(this, cmd)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}
+
+    @Deprecated("")
+    override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
+        listInstalledBanks()
+        NotificationListenerService::class.java.name.let { }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    @Deprecated("")
+    fun listInstalledBanks() {
+        val pm = packageManager
+        val p1 = pm.getInstalledApplications(0).filter {
+            it.packageName.contains("bri") || it.packageName.contains("brimo")
+        }.map { it.packageName }
+        Config.appendLog(this, "BRI app terpasang: ${p1.joinToString()}")
+        val p2 = pm.getInstalledApplications(0).filter {
+            it.packageName.contains("mandiri")
+        }.map { it.packageName }
+        Config.appendLog(this, "Mandiri app terpasang: ${p2.joinToString()}")
+    }
 }

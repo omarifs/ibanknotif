@@ -6,4 +6,5 @@
     <string name="label_banks">Aplikasi Bank yang Dipantau</string>
     <string name="label_log">Log Aktivitas</string>
     <string name="btn_save">Simpan Konfigurasi</string>
+    <string name="btn_debug">Deteksi App Bank Terpasang</string>
 </resources>
