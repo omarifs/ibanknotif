@@ -56,14 +56,6 @@ class NotifService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}
 
-    @Deprecated("")
-    override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
-        listInstalledBanks()
-        NotificationListenerService::class.java.name.let { }
-        return super.onStartCommand(intent, flags, startId)
-    }
-
-    @Deprecated("")
     fun listInstalledBanks() {
         val pm = packageManager
         val allApps = pm.getInstalledApplications(0)

@@ -71,9 +71,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<MaterialButton>(R.id.btnDebug).setOnClickListener {
-            val intent = Intent(this, NotifService::class.java)
-            startService(intent)
+            val pm = packageManager
+            val allApps = pm.getInstalledApplications(0)
+            val keywords = listOf("bri", "brimo", "mandiri", "bca", "bank")
+            val matches = allApps.filter { app ->
+                val label = app.loadLabel(pm).toString().lowercase()
+                val pkg = app.packageName.lowercase()
+                keywords.any { kw -> label.contains(kw) || pkg.contains(kw) }
+            }.map { "${it.loadLabel(pm)} [${it.packageName}]" }
+            Config.appendLog(this, "Bank apps terpasang:")
+            matches.forEach { Config.appendLog(this, "  $it") }
+            if (matches.isEmpty()) Config.appendLog(this, "  (tidak ditemukan)")
             Toast.makeText(this, "Cek log untuk package name", Toast.LENGTH_SHORT).show()
+            tvLog.text = Config.getLog(this)
         }
     }
 
