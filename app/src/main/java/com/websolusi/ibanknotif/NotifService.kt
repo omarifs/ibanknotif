@@ -1,11 +1,18 @@
 package com.websolusi.ibanknotif
 
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import android.os.Build
+import androidx.core.app.NotificationCompat
 
 class NotifService : NotificationListenerService() {
+
+    private val CHANNEL_ID = "ibanknotif_service_channel"
+    private val NOTIF_ID = 1001
 
     private val TITLE_BANK = mapOf(
         "brimo" to "bri",
@@ -16,42 +23,42 @@ class NotifService : NotificationListenerService() {
         "mandiri" to "mandiri"
     )
 
-    companion object {
-        var instance: NotifService? = null
-    }
-
     override fun onCreate() {
         super.onCreate()
-        instance = this
+        startForegroundServiceNotification()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        if (instance == this) instance = null
-    }
-
-    fun scanActiveNotifications(): Int {
-        val activeNotifs = activeNotifications ?: return 0
-        var count = 0
-        for (sbn in activeNotifs) {
-            onNotificationPosted(sbn)
-            count++
+    private fun startForegroundServiceNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Layanan Pemantau Notifikasi Bank",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
         }
-        return count
+
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("IBankNotif Aktif")
+            .setContentText("Memantau transaksi otomatis di latar belakang")
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        startForeground(NOTIF_ID, notification)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
+        if (pkg == packageName) return // Ignore own notifications
+
         val notif = sbn.notification ?: return
         val extras = notif.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
 
-        val bank = Config.bankLabel(pkg) ?: detectBankFromTitle(title)
-        if (bank == null) {
-            Config.appendLog(this, "SKIP pkg=$pkg title=$title (bukan bank)")
-            return
-        }
-        Config.appendLog(this, "NOTIF bank=$bank pkg=$pkg")
+        val bank = Config.bankLabel(pkg) ?: detectBankFromTitle(title) ?: return
 
         if (!Config.isBankEnabledByLabel(bank)) return
 
@@ -60,14 +67,11 @@ class NotifService : NotificationListenerService() {
 
         val fullText = "$title $text ${bigText ?: ""}"
 
-        Config.appendLog(this, "TEXT: $fullText")
+        Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
-        val tx = Parser.parseByBank(bank, fullText) ?: run {
-            Config.appendLog(this, "NO-PARSE (jumlah/arah tidak terdeteksi)")
-            return
-        }
+        val tx = Parser.parseByBank(bank, fullText) ?: return
         val cmd = Parser.toCommand(tx)
-        Config.appendLog(this, "SEND: $cmd")
+        Config.appendLog(this, "AUTO-SEND: $cmd")
         Sink.send(this, cmd)
     }
 
@@ -80,21 +84,4 @@ class NotifService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}
-
-    fun listInstalledBanks() {
-        val pm = packageManager
-        val allApps = pm.getInstalledApplications(0)
-        
-        val keywords = listOf("bri", "brimo", "mandiri", "bca", "bank")
-        val matches = allApps.filter { app ->
-            val label = app.loadLabel(pm).toString().lowercase()
-            val pkg = app.packageName.lowercase()
-            keywords.any { kw -> label.contains(kw) || pkg.contains(kw) }
-        }.map { "${it.loadLabel(pm)} [${it.packageName}]" }
-        
-        Config.appendLog(this, "Bank apps terpasang:")
-        matches.forEach { Config.appendLog(this, "  $it") }
-        
-        if (matches.isEmpty()) Config.appendLog(this, "  (tidak ditemukan)")
-    }
 }

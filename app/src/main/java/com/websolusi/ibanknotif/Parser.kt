@@ -87,9 +87,22 @@ object Parser {
         return match.groupValues[1]
     }
 
+    private val PINDAH_KEYWORDS = listOf(
+        "pindah saldo", "pindah dana", "transfer antarrekening", "transfer antar rekening",
+        "ke rekening sendiri", "internal transfer", "own account"
+    )
+
     fun toCommand(tx: Transaction): String {
         val id = if (tx.last4 != null) "${tx.bank}.${tx.last4}" else tx.bank
-        val cmd = if (tx.direction == "in") "tabin" else "tabout"
-        return "/$cmd $id ${tx.amount}"
+        val cmd = when (tx.direction) {
+            "pindahin" -> "pindahin"
+            "in" -> "tabin"
+            else -> "tabout"
+        }
+        return if (cmd == "pindahin") {
+            "/pindahin $id tujuan.rek ${tx.amount}"
+        } else {
+            "/$cmd $id ${tx.amount}"
+        }
     }
 }

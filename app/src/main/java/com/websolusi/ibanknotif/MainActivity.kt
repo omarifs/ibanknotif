@@ -38,64 +38,20 @@ class MainActivity : AppCompatActivity() {
             if (!isNotifServiceEnabled()) {
                 AlertDialog.Builder(this)
                     .setTitle("Akses Notifikasi Diperlukan")
-                    .setMessage("Aktifkan akses notifikasi untuk IBankNotif agar bisa membaca notifikasi bank.")
+                    .setMessage("Aktifkan akses notifikasi untuk IBankNotif agar bisa membaca notifikasi bank secara otomatis.")
                     .setPositiveButton("Buka Pengaturan") { _, _ ->
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     }
                     .setNegativeButton("Batal", null)
                     .show()
             } else {
-                Toast.makeText(this, "Sudah aktif", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Akses Notifikasi Sudah Aktif", Toast.LENGTH_SHORT).show()
             }
         }
 
         findViewById<MaterialButton>(R.id.btnSave).setOnClickListener {
             saveConfig()
-            Toast.makeText(this, "Konfigurasi tersimpan", Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<MaterialButton>(R.id.btnScanActive).setOnClickListener {
-            val service = NotifService.instance
-            if (service != null) {
-                Config.appendLog(this, "--- MEMINDAI NOTIFIKASI AKTIF ---")
-                val count = service.scanActiveNotifications()
-                Toast.makeText(this, "Memindai $count notifikasi aktif", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Service belum aktif. Pastikan Izin Akses Notifikasi sudah diberikan.", Toast.LENGTH_LONG).show()
-            }
-            tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
-        }
-
-        findViewById<MaterialButton>(R.id.btnSyncTest).setOnClickListener {
-            saveConfig()
-            Config.appendLog(this, "--- TES MANUAL KONEKSI ---")
-            val testCmd = "/tabin tes.manual 10000"
-            Config.appendLog(this, "Kirim: $testCmd")
-            Sink.send(this, testCmd)
-            Toast.makeText(this, "Mengirim tes manual... cek Log Aktivitas", Toast.LENGTH_SHORT).show()
-            tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
-        }
-
-        findViewById<MaterialButton>(R.id.btnClearLog).setOnClickListener {
-            Config.clearLog(this)
-            tvLog.text = ""
-            Toast.makeText(this, "Log dibersihkan", Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<MaterialButton>(R.id.btnDebug).setOnClickListener {
-            val pm = packageManager
-            val allApps = pm.getInstalledApplications(0)
-            val keywords = listOf("bri", "brimo", "mandiri", "bca", "bank")
-            val matches = allApps.filter { app ->
-                val label = app.loadLabel(pm).toString().lowercase()
-                val pkg = app.packageName.lowercase()
-                keywords.any { kw -> label.contains(kw) || pkg.contains(kw) }
-            }.map { "${it.loadLabel(pm)} [${it.packageName}]" }
-            Config.appendLog(this, "Bank apps terpasang:")
-            matches.forEach { Config.appendLog(this, "  $it") }
-            if (matches.isEmpty()) Config.appendLog(this, "  (tidak ditemukan)")
-            Toast.makeText(this, "Cek log untuk package name", Toast.LENGTH_SHORT).show()
-            tvLog.text = Config.getLog(this)
+            Toast.makeText(this, "Pengaturan tersimpan", Toast.LENGTH_SHORT).show()
         }
     }
 
