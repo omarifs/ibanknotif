@@ -35,6 +35,25 @@ object Parser {
     private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
     private val LAST4_RE = Regex("""[.*x*]{0,5}(\d{4})\b""")
 
+    fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
+
+    fun parse(pkg: String, text: String): Transaction? {
+        val bank = BANK_PKG[pkg] ?: return null
+        return parseByBank(bank, text)
+    }
+
+    fun parseByBank(bank: String, text: String): Transaction? {
+        val lower = text.lowercase()
+
+        val amount = extractAmount(text) ?: return null
+        if (amount <= 0) return null
+
+        val direction = detectDirection(lower) ?: return null
+        val last4 = extractLast4(text)
+
+        return Transaction(bank, amount, direction, last4)
+    }
+
     private fun extractAmount(text: String): Long? {
         val match = AMOUNT_RE.find(text)
         if (match != null) {
