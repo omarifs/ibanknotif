@@ -129,7 +129,14 @@ object Parser {
     )
 
     fun toCommand(tx: Transaction): String {
-        val id = if (tx.last4 != null) "${tx.bank}.${tx.last4}" else tx.bank
+        val id = when (tx.bank) {
+            "bri" -> when (tx.last4) {
+                "8533" -> "bri.ibu"
+                null -> "bri"
+                else -> "bri.vidha"
+            }
+            else -> if (tx.last4 != null) "${tx.bank}.${tx.last4}" else tx.bank
+        }
         val cmd = when (tx.direction) {
             "pindahin" -> "pindahin"
             "in" -> "tabin"
