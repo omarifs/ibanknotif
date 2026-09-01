@@ -4,7 +4,8 @@ data class Transaction(
     val bank: String,
     val amount: Long,
     val direction: String, // "in" or "out"
-    val last4: String? = null
+    val last4: String? = null,
+    val name: String? = null
 )
 
 object Parser {
@@ -33,7 +34,10 @@ object Parser {
 
     private val AMOUNT_RE = Regex("""(?:IDR|Rp)[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
     private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp|idr)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
-    private val LAST4_RE = Regex("""[.*x*]{0,5}(\d{4})\b""")
+    private val REKENING_RE = Regex("""rekening[:\s]*(\d{10,20})""", RegexOption.IGNORE_CASE)
+    private val REKENING_MASKED_RE = Regex("""([Xx*][Xx*.]*\s*)?(\d{4})\b""")
+    private val BRI_NAME_RE = Regex("""KET\.[A-Z0-9]*?_(?:\d+_)*([A-Za-z ]+)\s*$""")
+    private val BRI_NAMA_AFTER_KET_RE = Regex("""KET\.[A-Z0-9_]+?\s+([A-Z][A-Za-z .]+)\s*$""")
 
     fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
 
@@ -49,9 +53,10 @@ object Parser {
         if (amount <= 0) return null
 
         val direction = detectDirection(lower) ?: return null
-        val last4 = extractLast4(text)
+        val last4 = extractLast4(bank, text)
+        val name = extractName(bank, text)
 
-        return Transaction(bank, amount, direction, last4)
+        return Transaction(bank, amount, direction, last4, name)
     }
 
     private fun extractAmount(text: String): Long? {
@@ -82,9 +87,34 @@ object Parser {
         return null
     }
 
-    private fun extractLast4(text: String): String? {
-        val match = LAST4_RE.find(text) ?: return null
-        return match.groupValues[1]
+    private fun extractLast4(bank: String, text: String): String? {
+        // cari dulu nomor rekening lengkap (tampil penuh utk BRI notif masuk)
+        val reken = REKENING_RE.find(text)?.groupValues?.get(1)
+        if (reken != null && reken.length >= 4) return reken.takeLast(4)
+
+        // rekening termask (XXXX...8533) utk transfer keluar/masuk via BRI
+        val masked = Regex("""[Xx*].{0,3}(\d{4})\b""").find(text)?.groupValues?.get(1)
+        if (masked != null) return masked
+
+        return null
+    }
+
+    private fun extractName(bank: String, text: String): String? {
+        if (bank == "bri") {
+            // "KET.BRIPEN... Sobat" -> nama pemilik di akhir baris
+            BRI_NAME_RE.find(text)?.let {
+                val n = it.groupValues[1].trim()
+                if (n.length >= 3) return n
+            }
+            BRI_NAMA_AFTER_KET_RE.find(text)?.let {
+                val n = it.groupValues[1].trim()
+                if (n.length >= 3) return n
+            }
+            // transfer; "dari XXXXXXXXX5530" -> "dari" lalu nama tak selalu ada, cari "Sobat"
+            val m = Regex("""\bSobat\b""").find(text)
+            if (m != null) return "Sobat"
+        }
+        return null
     }
 
     private val PINDAH_KEYWORDS = listOf(
@@ -99,10 +129,11 @@ object Parser {
             "in" -> "tabin"
             else -> "tabout"
         }
+        val name = if (tx.name != null) " ${tx.name}" else ""
         return if (cmd == "pindahin") {
-            "/pindahin $id tujuan.rek ${tx.amount}"
+            "/pindahin $id tujuan.rek ${tx.amount}$name"
         } else {
-            "/$cmd $id ${tx.amount}"
+            "/$cmd $id ${tx.amount}$name"
         }
     }
 }
