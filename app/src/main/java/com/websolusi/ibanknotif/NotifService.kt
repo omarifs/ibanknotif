@@ -86,12 +86,20 @@ class NotifService : NotificationListenerService() {
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
 
         val fullText = "$title $text ${bigText ?: ""}"
+        val postTime = sbn.postTime
+        val notifKey = "${pkg}_${postTime}_${fullText.hashCode()}"
+
+        if (Config.isProcessed(this, notifKey)) {
+            Config.appendLog(this, "SKIP (DUPLIKAT): $fullText")
+            return
+        }
 
         Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
         val tx = Parser.parseByBank(bank, fullText) ?: return
         val cmd = Parser.toCommand(tx)
         Config.appendLog(this, "AUTO-SEND: $cmd")
+        Config.markProcessed(this, notifKey)
         Sink.send(this, cmd)
     }
 

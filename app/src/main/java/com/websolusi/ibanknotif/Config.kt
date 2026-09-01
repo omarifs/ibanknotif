@@ -11,6 +11,7 @@ object Config {
     private const val KEY_MANDIRI = "bank_mandiri"
     private const val KEY_BRI = "bank_bri"
     private const val KEY_LOG = "log"
+    private const val KEY_PROCESSED_KEYS = "processed_keys"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
@@ -76,5 +77,19 @@ object Config {
 
     fun clearLog(ctx: Context) {
         prefs(ctx).edit().remove(KEY_LOG).apply()
+    }
+
+    fun isProcessed(ctx: Context, key: String): Boolean {
+        val set = prefs(ctx).getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()
+        return set.contains(key)
+    }
+
+    fun markProcessed(ctx: Context, key: String) {
+        val p = prefs(ctx)
+        val current = (p.getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()).toMutableSet()
+        current.add(key)
+        // jaga ukuran max 200 key agar SharedPreferences tak membengkak
+        val trimmed = if (current.size > 200) current.takeLast(200).toSet() else current
+        p.edit().putStringSet(KEY_PROCESSED_KEYS, trimmed).apply()
     }
 }
