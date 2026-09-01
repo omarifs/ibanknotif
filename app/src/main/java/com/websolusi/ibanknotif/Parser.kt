@@ -143,11 +143,10 @@ object Parser {
             "in" -> "tabin"
             else -> "tabout"
         }
-        val name = if (tx.bank != "bca" && tx.name != null) " ${tx.name}" else ""
         return if (cmd == "pindahin") {
-            "/pindahin $id tujuan.rek ${tx.amount}$name"
+            "/pindahin $id tujuan.rek ${tx.amount}"
         } else {
-            "/$cmd $id ${tx.amount}$name"
+            "/$cmd $id ${tx.amount}"
         }
     }
 }
