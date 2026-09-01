@@ -89,7 +89,7 @@ object Config {
         val current = (p.getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()).toMutableSet()
         current.add(key)
         // jaga ukuran max 200 key agar SharedPreferences tak membengkak
-        val trimmed = if (current.size > 200) current.takeLast(200).toSet() else current
+        val trimmed = if (current.size > 200) current.toList().takeLast(200).toSet() else current
         p.edit().putStringSet(KEY_PROCESSED_KEYS, trimmed).apply()
     }
 }
