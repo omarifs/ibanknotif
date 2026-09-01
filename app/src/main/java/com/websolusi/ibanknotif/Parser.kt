@@ -135,6 +135,7 @@ object Parser {
                 null -> "bri"
                 else -> "bri.vidha"
             }
+            "bca" -> "bca"
             else -> if (tx.last4 != null) "${tx.bank}.${tx.last4}" else tx.bank
         }
         val cmd = when (tx.direction) {
@@ -142,7 +143,7 @@ object Parser {
             "in" -> "tabin"
             else -> "tabout"
         }
-        val name = if (tx.name != null) " ${tx.name}" else ""
+        val name = if (tx.bank != "bca" && tx.name != null) " ${tx.name}" else ""
         return if (cmd == "pindahin") {
             "/pindahin $id tujuan.rek ${tx.amount}$name"
         } else {
