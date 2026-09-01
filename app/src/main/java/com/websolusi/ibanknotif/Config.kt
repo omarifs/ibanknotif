@@ -22,7 +22,7 @@ object Config {
     fun chatId(ctx: Context): Long =
         prefs(ctx).getLong(KEY_CHAT_ID, -1002031892399)
 
-    private val BCA_PKGS = setOf("com.bca")
+    private val BCA_PKGS = setOf("com.bca", "com.bca.mybca", "com.bca.mobile", "com.bca.mbs")
     private val MANDIRI_PKGS = setOf("co.id.mandiri.livin", "co.id.mandiri.touch")
     private val BRI_PKGS = setOf("id.co.bri.brimo", "com.bri.brimo", "id.co.bri.www.brimo")
 

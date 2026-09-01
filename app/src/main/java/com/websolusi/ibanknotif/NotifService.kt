@@ -19,6 +19,7 @@ class NotifService : NotificationListenerService() {
         "bri" to "bri",
         "bca" to "bca",
         "mybca" to "bca",
+        "financial diary" to "bca",
         "livin" to "mandiri",
         "mandiri" to "mandiri"
     )
