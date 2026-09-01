@@ -29,7 +29,7 @@ object Parser {
         "keluar", "debit", "transfer", "bayar", "beli", "sent", "transferred",
         "potong", "tagihan", "pembayaran", "withdrawal",
         "tarik", "pengiriman", "dikirim", "terkirim",
-        "outgoing", "debit", "payment", "purchase"
+        "outgoing", "debit", "payment", "purchase", "spent"
     )
 
     private val AMOUNT_RE = Regex("""(?:IDR|Rp)[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
@@ -113,6 +113,12 @@ object Parser {
             // transfer; "dari XXXXXXXXX5530" -> "dari" lalu nama tak selalu ada, cari "Sobat"
             val m = Regex("""\bSobat\b""").find(text)
             if (m != null) return "Sobat"
+        } else if (bank == "bca") {
+            // "from ***PET **AK ***GSA at"
+            val m = Regex("""\bfrom\s+(.+?)\s+at\b""", RegexOption.IGNORE_CASE).find(text)
+            if (m != null) {
+                return m.groupValues[1].trim()
+            }
         }
         return null
     }
