@@ -22,14 +22,20 @@ object Parser {
 
     private val IN_KEYWORDS = listOf(
         "masuk", "kredit", "menerima", "terima", "diterima", "received",
-        "top up", "topup", "isi saldo", "berhasil menerima", "incoming", "credit"
+        "berhasil menerima", "incoming", "credit"
     )
 
     private val OUT_KEYWORDS = listOf(
         "keluar", "debit", "transfer", "bayar", "beli", "sent", "transferred",
         "potong", "tagihan", "pembayaran", "withdrawal",
         "tarik", "pengiriman", "dikirim", "terkirim",
-        "outgoing", "debit", "payment", "purchase", "spent"
+        "outgoing", "debit", "payment", "purchase", "spent",
+        "top up", "topup", "top-up", "isi saldo"
+    )
+
+    private val EWALLET_KEYWORDS = listOf(
+        "shopeepay", "shopee pay", "gopay", "go-pay", "ovo", "dana",
+        "linkaja", "link aja", "qris", "wallet", "e-wallet", "ewallet", "dompet"
     )
 
     private val AMOUNT_RE = Regex("""(?:IDR|Rp)[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
@@ -52,7 +58,7 @@ object Parser {
         val amount = extractAmount(text) ?: return null
         if (amount <= 0) return null
 
-        val direction = detectDirection(lower) ?: return null
+        val direction = detectDirection(bank, lower) ?: return null
         val last4 = extractLast4(bank, text)
         val name = extractName(bank, text)
 
@@ -77,10 +83,22 @@ object Parser {
         return null
     }
 
-    private fun detectDirection(lower: String): String? {
+    private fun detectDirection(bank: String, lower: String): String? {
+        // 1. transfer antar rekening sendiri -> pindahin (prioritas tertinggi)
+        for (kw in PINDAH_KEYWORDS) {
+            if (kw in lower) return "pindahin"
+        }
+        if (PINDAH_RE.containsMatchIn(lower)) return "pindahin"
+        if (PINDAH_OWN_RE.containsMatchIn(lower)) return "pindahin"
+        // 2. top up e-wallet BRI -> uang keluar (debit) dari rekening
+        if (bank == "bri" && EWALLET_KEYWORDS.any { it in lower } && OUT_KEYWORDS.any { it in lower }) {
+            return "out"
+        }
+        // 3. keyword masuk
         for (kw in IN_KEYWORDS) {
             if (kw in lower) return "in"
         }
+        // 4. keyword keluar
         for (kw in OUT_KEYWORDS) {
             if (kw in lower) return "out"
         }
@@ -128,11 +146,22 @@ object Parser {
         "ke rekening sendiri", "internal transfer", "own account"
     )
 
+    // pola BRI "Transfer dari XXXX..8533 dengan nomor rekening tujuan XXXX..3508"
+    private val PINDAH_RE = Regex(
+        """transfer\s+dari\s+[Xx*0-9]+\s+dengan\s+nomor\s+rekening\s+tujuan""",
+        RegexOption.IGNORE_CASE
+    )
+    // pola myBCA: transfer ke rekening sendiri / "own" / "antar rekening sendiri"
+    private val PINDAH_OWN_RE = Regex(
+        """(?:own account|ke rekening sendiri|antar rekening sendiri|pindah dana|pindah saldo|internal transfer)""",
+        RegexOption.IGNORE_CASE
+    )
+
     fun toCommand(tx: Transaction): String {
         val id = when (tx.bank) {
             "bri" -> when (tx.last4) {
                 "8533" -> "bri.ibu"
-                null -> "bri"
+                null -> "bri.ibu"   // notifikasi BRI tanpa rekening awal (mis. topup e-wallet) -> default rekening utama ibu
                 else -> "bri.vidha"
             }
             "bca" -> "bca"

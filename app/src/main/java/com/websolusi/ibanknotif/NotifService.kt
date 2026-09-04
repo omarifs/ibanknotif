@@ -97,7 +97,10 @@ class NotifService : NotificationListenerService() {
 
         Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
-        val tx = Parser.parseByBank(bank, fullText) ?: return
+        val tx = Parser.parseByBank(bank, fullText) ?: run {
+            Config.appendLog(this, "SKIP (PARSE GAGAL): $fullText")
+            return
+        }
         val cmd = Parser.toCommand(tx)
         Config.appendLog(this, "AUTO-SEND: $cmd")
         Config.markProcessed(this, notifKey)
