@@ -99,8 +99,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Pindai Notif dengan AI (Gemini)"
-            android:layout_marginTop="8dp"
-            style="@style/Widget.MaterialComponents.Button.TonalButton" />
+            android:layout_marginTop="8dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnClearLearn"
