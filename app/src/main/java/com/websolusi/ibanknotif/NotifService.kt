@@ -97,6 +97,16 @@ class NotifService : NotificationListenerService() {
 
         Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
+        // 1. coba template hasil belajar AI (prediksi paling akurat)
+        val learnedCmd = Learning.match(bank, fullText, this)
+        if (learnedCmd != null) {
+            Config.appendLog(this, "AUTO-SEND (LEARNED): $learnedCmd")
+            Config.markProcessed(this, notifKey)
+            Sink.send(this, learnedCmd)
+            return
+        }
+
+        // 2. fallback ke parser regex statis
         val tx = Parser.parseByBank(bank, fullText) ?: run {
             Config.appendLog(this, "SKIP (PARSE GAGAL): $fullText")
             return

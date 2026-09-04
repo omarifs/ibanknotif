@@ -46,6 +46,21 @@
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="Gemini API Key"
+            android:textStyle="bold"
+            android:layout_marginTop="8dp" />
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etApiKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:hint="AIzaSy... (dari Google AI Studio)" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="@string/label_banks"
             android:textStyle="bold"
             android:layout_marginTop="8dp" />
@@ -78,6 +93,22 @@
             android:text="@string/btn_trigger"
             android:layout_marginTop="8dp"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnScanAi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pindai Notif dengan AI (Gemini)"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.MaterialComponents.Button.TonalButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnClearLearn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Bersihkan Hasil Belajar"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.MaterialComponents.Button.TextButton" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSave"
