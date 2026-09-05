@@ -1,0 +1,105 @@
+# Dokumentasi & Kredensial Proyek IBankNotif
+
+Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Mandiri/Livin', BRI/BRImo) secara otomatis di background dan meneruskan data transaksi ke Telegram Bot via webhook PHP.
+
+---
+
+## 1. Lokasi Proyek & Git Repository
+
+* **Lokasi Lokal:** `/mnt/a/laragon/www/ibanknotif`
+* **GitHub Repository:** `https://github.com/omarifs/ibanknotif.git`
+* **Branch Utama:** `main`
+
+---
+
+## 2. Kredensial & Autentikasi
+
+* **GitHub Personal Access Token (Classic):**
+  * Token: `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`
+  * Git Remote URL (dengan Token): `https://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@github.com/omarifs/ibanknotif.git`
+
+* **Telegram Bot & Webhook Endpoint:**
+  * Bot Token Telegram: `8533838625:AAEeeIpUS8ubYwaVBS0U_Ob0RiHvcptDu80`
+  * Chat ID Default: `-1002031892399`
+  * PHP Webhook Script (Lokal): `/mnt/a/laragon/www/telegram/telegram.php`
+  * Server Webhook Path: `dn-arif:/home/websolusi/telegram/telegram.php`
+  * Server Endpoint Webhook (Public): `https://tools.websolusi.com/telegram/telegram.php`
+
+---
+
+## 3. Struktur Proyek Android
+
+```text
+/mnt/a/laragon/www/ibanknotif/
+├── .github/workflows/
+│   └── build.yml               # Workflow GitHub Actions untuk auto-build APK Debug
+├── app/
+│   ├── src/main/
+│   │   ├── AndroidManifest.xml # Izin Notifikasi, Service & Adaptive Icon
+│   │   ├── java/com/websolusi/ibanknotif/
+│   │   │   ├── Config.kt       # SharedPreferences, log & bank resolution
+│   │   │   ├── Gemini.kt       # Integrasi Gemini API (gemini-2.0-flash) utk Pindai AI
+│   │   │   ├── Learning.kt     # Template manager (pola regex + command offline)
+│   │   │   ├── MainActivity.kt # UI Pengaturan, API Key, Tombol Pindai AI & Rebind
+│   │   │   ├── NotifService.kt # Foreground Listener + auto-detect (Learned -> Static)
+│   │   │   ├── Parser.kt       # Parser regex nominal, arah (in/out/pindahin), fallback
+│   │   │   └── Sink.kt         # HTTP POST JSON sender
+│   │   └── res/
+│   │       ├── drawable/       # Adaptive Icon vector background/foreground
+│   │       ├── mipmap-anydpi/  # Launcher icon entries
+│   │       └── layout/activity_main.xml
+└── CREDENTIALS_AND_LOG.md      # Dokumentasi & Log Pembelajaran
+```
+
+---
+
+## 4. Workflow Pengembangan & Build
+
+1. `cd /mnt/a/laragon/www/ibanknotif`
+2. Modifikasi kode -> `git add .` -> `git commit -m "..."` -> `git push`
+3. CI/CD GitHub Actions otomatis mengkompilasi APK -> unduh di tab **Actions → Artifacts (`ibanknotif-debug`)**.
+
+---
+
+## 5. Log Pembelajaran & Perbaikan Sistem (Update Terakhir)
+
+### A. Perbaikan Parser & Logika Transaksi (`Parser.kt` & `NotifService.kt`)
+1. **Top-Up E-Wallet BRI (`/tabout bri.ibu <nominal>`):**
+   - Kasus: BRImo notifikasi `Top Up ShopeePay ... Rp200.000` sebelumnya salah diklasifikasi sebagai `in` karena kata `"top up"`.
+   - Solusi: Kata kunci top-up dipindahkan ke `OUT_KEYWORDS`. Khusus notifikasi BRI ber-e-wallet -> otomatis dijadikan `out` dan jika `last4 == null` (tidak ada nomor rekening awal di notif), default ke `bri.ibu`.
+2. **Transfer Antar Rekening Sendiri (`/pindahin`):**
+   - Pola notifikasi BRI `"Transfer dari XXXXX8533 dengan nomor rekening tujuan XXXXX3508"` kini ditangkap oleh `PINDAH_RE` -> menghasilkan `/pindahin bri.ibu tujuan.rek <nominal>`.
+   - `PINDAH_KEYWORDS` dan `PINDAH_OWN_RE` dievaluasi di urutan **prioritas tertinggi** sebelum check `in`/`out`.
+
+### B. Integrasi Gemini AI & Learning Offline (`Gemini.kt` & `Learning.kt`)
+1. **Pindai AI (Scan Manual):**
+   - Menambahkan input manual **Gemini API Key** di Pengaturan.
+   - Pindai AI mengambil seluruh notifikasi bank aktif di HP -> dikirim ke `gemini-2.0-flash` -> Gemini mengekstrak data + memformulasikan `command` Telegram final (`/tabin`, `/tabout`, `/pindahin`) + menghasilkan `pattern` (regex Kotlin).
+2. **Hasil Belajar Offline (Template Manager):**
+   - Hasil scan AI yang disetujui user disimpan di `SharedPreferences` sebagai **template hasil belajar** (offline, tanpa panggil AI ulang).
+   - Pada runtime `NotifService.onNotificationPosted`, sistem **mencoba mencocokkan template hasil belajar dulu** (`Learning.match`). Jika cocok -> langsung kirim command hasil belajar. Jika tidak cocok -> fallback ke `Parser` statis.
+
+### C. Solusi Race Condition Server PHP & DB (`telegram.php` & MySQL)
+1. **Penyebab Data Hilang Saat Scan Manual:**
+   - Gejala: Log HP mencatat 3 HTTP POST `200`, tetapi di Telegram hanya 1 transaksi terakhir yang muncul.
+   - Penyebab: `telegram.php` menghitung `id` via `SELECT MAX(id)+1 FROM tele_tabungan`. Saat 3 POST dikirim simultan dari HP, 3 request membaca `MAX(id)` yang sama secara paralel -> `PRIMARY KEY` (id) bentrok -> 2 INSERT ditolak DB.
+2. **Solusi Permanen (Server `dn-arif`):**
+   - Mengubah kolom `id` pada tabel `tele_tabungan` dan `tele_tabungan_emas` di MySQL menjadi **`AUTO_INCREMENT`**.
+   - Menghapus panggilan `maxID()` manual pada `INSERT` (`/tabin`, `/tabout`, `/pindahin`, `/emasin`) di `/home/websolusi/telegram/telegram.php`. DB sekarang menggenerate ID atomic yang aman dari race condition. Uji race 5 request simultan -> 100% sukses masuk DB.
+
+### D. Perbaikan UX App & Launcher Icon
+1. **Diagnosis Service Status (`MainActivity.kt`):**
+   - Membedakan kondisi **"Izin Notifikasi Mati"** (buka dialog pengaturan) vs **"Service Di-suspend Sistem"** (`instance == null` meskipun izin aktif).
+   - Menambahkan `NotificationListenerService.requestRebind()` otomatis saat service suspend agar listener aktif kembali tanpa membingungkan user.
+2. **Adaptive Launcher Icon:**
+   - Menambahkan vector icon resmi `@mipmap/ic_launcher` (koin rupiah emas + grafik pertumbuhan naik di atas background gradient navy-indigo-teal).
+
+---
+
+## 6. Daftar Perintah Telegram yang Didukung Handler PHP
+
+- `/tabin <id> <nominal> [YYYY-MM-DD]` — Transaksi masuk
+- `/tabout <id> <nominal> [YYYY-MM-DD]` — Transaksi keluar
+- `/pindahin <id_asal> <id_tujuan> <nominal> [YYYY-MM-DD]` — Transfer antar rekening (otomatis dicatat sebagai `pinout` & `pinin`)
+- `/tabtotal [n_bulan]` — Rekap mutasi & saldo tabungan
+- `/tabdel <id>` — Hapus baris transaksi berdasarkan ID
