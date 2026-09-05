@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import android.text.TextUtils
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -58,27 +59,23 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnTrigger).setOnClickListener {
             saveConfig()
-            val service = NotifService.instance
+            val service = ensureServiceRunning()
             if (service != null) {
                 Config.appendLog(this, "--- PEMINDAIAN MANUAL NOTIFIKASI AKTIF ---")
                 val count = service.scanActiveNotifications()
                 Toast.makeText(this, "Memindai $count notifikasi aktif di HP...", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Service belum berjalan. Buka Izin Notifikasi dahulu.", Toast.LENGTH_LONG).show()
             }
             tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
         }
 
         findViewById<MaterialButton>(R.id.btnScanAi).setOnClickListener {
             saveConfig()
+            val service = ensureServiceRunning()
+            if (service == null) return@setOnClickListener
+
             val key = Learning.apiKey(this)
             if (key.isBlank()) {
                 Toast.makeText(this, "Isi Gemini API Key dulu", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            val service = NotifService.instance
-            if (service == null) {
-                Toast.makeText(this, "Service belum berjalan. Aktifkan izin notifikasi dulu.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             val active = service.activeNotifications ?: emptyArray()
@@ -176,5 +173,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return false
+    }
+
+    /** Pastikan service listener tersedia untuk scan. Bedakan: izin mati vs service di-suspend sistem. */
+    private fun ensureServiceRunning(): NotifService? {
+        if (!isNotifServiceEnabled()) {
+            AlertDialog.Builder(this)
+                .setTitle("Akses Notifikasi Mati")
+                .setMessage("Izin akses notifikasi belum aktif. Aktifkan IBankNotif di pengaturan izin notifikasi, lalu kembali ke sini.")
+                .setPositiveButton("Buka Pengaturan") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
+                .setNegativeButton("Batal", null)
+                .show()
+            return null
+        }
+        val service = NotifService.instance
+        if (service != null) return service
+        // Izin OK tapi service belum ter-bind (di-suspend/baru buka app) ->
+        // minta sistem re-bind listener, lalu pandu retry.
+        NotificationListenerService.requestRebind(
+            ComponentName(this, NotifService::class.java)
+        )
+        Toast.makeText(this, "Service sedang diaktifkan... Ulangi beberapa detik lagi.", Toast.LENGTH_LONG).show()
+        Config.appendLog(this, "SERVICE REBIND diminta (izin OK, instance null)")
+        return null
     }
 }
