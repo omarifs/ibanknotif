@@ -92,7 +92,13 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
    - Membedakan kondisi **"Izin Notifikasi Mati"** (buka dialog pengaturan) vs **"Service Di-suspend Sistem"** (`instance == null` meskipun izin aktif).
    - Menambahkan `NotificationListenerService.requestRebind()` otomatis saat service suspend agar listener aktif kembali tanpa membingungkan user.
 2. **Adaptive Launcher Icon:**
-   - Menambahkan vector icon resmi `@mipmap/ic_launcher` (koin rupiah emas + grafik pertumbuhan naik di atas background gradient navy-indigo-teal).
+    - Menambahkan vector icon resmi `@mipmap/ic_launcher` (koin rupiah emas + grafik pertumbuhan naik di atas background gradient navy-indigo-teal).
+
+### E. Recovery Service Setelah Reboot
+1. `MainActivity` mencoba mendapatkan `NotifService.instance` otomatis setelah `requestRebind()` dengan jeda 1, 2, dan 4 detik.
+2. Retry berhenti saat service aktif atau setelah tiga percobaan; tidak ada polling permanen atau `BOOT_COMPLETED` receiver.
+3. Redmi Note 8/MIUI perlu IBankNotif disetel ke **No restrictions**, **Autostart aktif**, dan dikunci pada Recent apps agar listener tidak disuspend sistem.
+4. Build GitHub Actions menggunakan JDK 17 dan menghasilkan artifact `ibanknotif-debug`.
 
 ---
 

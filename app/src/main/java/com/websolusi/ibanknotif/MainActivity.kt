@@ -3,6 +3,8 @@ package com.websolusi.ibanknotif
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.text.TextUtils
@@ -59,31 +61,28 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnTrigger).setOnClickListener {
             saveConfig()
-            val service = ensureServiceRunning()
-            if (service != null) {
+            withService { service ->
                 Config.appendLog(this, "--- PEMINDAIAN MANUAL NOTIFIKASI AKTIF ---")
                 val count = service.scanActiveNotifications()
                 Toast.makeText(this, "Memindai $count notifikasi aktif di HP...", Toast.LENGTH_SHORT).show()
+                tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
             }
-            tvLog.postDelayed({ tvLog.text = Config.getLog(this) }, 1500)
         }
 
         findViewById<MaterialButton>(R.id.btnScanAi).setOnClickListener {
             saveConfig()
-            val service = ensureServiceRunning()
-            if (service == null) return@setOnClickListener
-
-            val key = Learning.apiKey(this)
-            if (key.isBlank()) {
-                Toast.makeText(this, "Isi Gemini API Key dulu", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            val active = service.activeNotifications ?: emptyArray()
-            if (active.isEmpty()) {
-                Toast.makeText(this, "Tidak ada notifikasi aktif untuk dipindai", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            val notifs = active.mapNotNull { sbn ->
+            withService { service ->
+                val key = Learning.apiKey(this)
+                if (key.isBlank()) {
+                    Toast.makeText(this, "Isi Gemini API Key dulu", Toast.LENGTH_LONG).show()
+                    return@withService
+                }
+                val active = service.activeNotifications ?: emptyArray()
+                if (active.isEmpty()) {
+                    Toast.makeText(this, "Tidak ada notifikasi aktif untuk dipindai", Toast.LENGTH_LONG).show()
+                    return@withService
+                }
+                val notifs = active.mapNotNull { sbn ->
                 val pkg = sbn.packageName
                 val bank = Gemini.bankLabel(pkg) ?: return@mapNotNull null
                 val ex = sbn.notification?.extras ?: return@mapNotNull null
@@ -92,11 +91,11 @@ class MainActivity : AppCompatActivity() {
                 val big = ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString()
                 Gemini.RawNotif(pkg, title, text, big)
             }
-            if (notifs.isEmpty()) {
-                Toast.makeText(this, "Tidak ada notifikasi bank yang cocok", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            Toast.makeText(this, "Menganalisis ${notifs.size} notif dengan AI...", Toast.LENGTH_SHORT).show()
+                if (notifs.isEmpty()) {
+                    Toast.makeText(this, "Tidak ada notifikasi bank yang cocok", Toast.LENGTH_LONG).show()
+                    return@withService
+                }
+                Toast.makeText(this, "Menganalisis ${notifs.size} notif dengan AI...", Toast.LENGTH_SHORT).show()
             Thread {
                 val results = Gemini.extract(this, key, notifs)
                 val valid = results.filterNotNull().filter { it.command.isNotBlank() }
@@ -124,7 +123,8 @@ class MainActivity : AppCompatActivity() {
                         .setNegativeButton("Batal", null)
                         .show()
                 }
-            }.start()
+                }.start()
+            }
         }
 
         findViewById<MaterialButton>(R.id.btnClearLearn).setOnClickListener {
@@ -175,7 +175,21 @@ class MainActivity : AppCompatActivity() {
         return false
     }
 
-    /** Pastikan service listener tersedia untuk scan. Bedakan: izin mati vs service di-suspend sistem. */
+    private fun withService(action: (NotifService) -> Unit) {
+        ensureServiceRunning()?.let(action) ?: run {
+            val delays = longArrayOf(1000, 2000, 4000)
+            fun retry(index: Int) {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val service = NotifService.instance
+                    if (service != null) action(service)
+                    else if (index < delays.lastIndex) retry(index + 1)
+                    else Toast.makeText(this, "Service belum siap. Periksa akses notifikasi dan baterai.", Toast.LENGTH_LONG).show()
+                }, delays[index])
+            }
+            if (isNotifServiceEnabled()) retry(0)
+        }
+    }
+
     private fun ensureServiceRunning(): NotifService? {
         if (!isNotifServiceEnabled()) {
             AlertDialog.Builder(this)
@@ -190,12 +204,10 @@ class MainActivity : AppCompatActivity() {
         }
         val service = NotifService.instance
         if (service != null) return service
-        // Izin OK tapi service belum ter-bind (di-suspend/baru buka app) ->
-        // minta sistem re-bind listener, lalu pandu retry.
         NotificationListenerService.requestRebind(
             ComponentName(this, NotifService::class.java)
         )
-        Toast.makeText(this, "Service sedang diaktifkan... Ulangi beberapa detik lagi.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Service sedang diaktifkan...", Toast.LENGTH_SHORT).show()
         Config.appendLog(this, "SERVICE REBIND diminta (izin OK, instance null)")
         return null
     }
