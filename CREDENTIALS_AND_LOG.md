@@ -100,6 +100,11 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 3. Redmi Note 8/MIUI perlu IBankNotif disetel ke **No restrictions**, **Autostart aktif**, dan dikunci pada Recent apps agar listener tidak disuspend sistem.
 4. Build GitHub Actions menggunakan JDK 17 dan menghasilkan artifact `ibanknotif-debug`.
 
+### F. Crash `startForeground` di NotificationListenerService (Redmi/MIUI)
+1. Gejala: izin notifikasi OK, log `SERVICE REBIND diminta (izin OK, instance null)`, instance tetap null setelah retry.
+2. Penyebab: `NotifService.onCreate()` memanggil `startForeground()`. Android 14/MIUI menolak FGS dari listener ter-bind -> service crash sebelum `onListenerConnected`.
+3. Solusi: hapus FGS; set `instance` di `onListenerConnected`; toggle komponen + `requestRebind()` saat app dibuka; minta exemption baterai sekali.
+
 ---
 
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP

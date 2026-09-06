@@ -1,18 +1,10 @@
 package com.websolusi.ibanknotif
 
 import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
-import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import androidx.core.app.NotificationCompat
 
 class NotifService : NotificationListenerService() {
-
-    private val CHANNEL_ID = "ibanknotif_service_channel"
-    private val NOTIF_ID = 1001
 
     private val TITLE_BANK = mapOf(
         "brimo" to "bri",
@@ -28,10 +20,16 @@ class NotifService : NotificationListenerService() {
         var instance: NotifService? = null
     }
 
-    override fun onCreate() {
-        super.onCreate()
+    override fun onListenerConnected() {
+        super.onListenerConnected()
         instance = this
-        startForegroundServiceNotification()
+        Config.appendLog(this, "SERVICE CONNECTED")
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        if (instance == this) instance = null
+        Config.appendLog(this, "SERVICE DISCONNECTED")
     }
 
     override fun onDestroy() {
@@ -47,28 +45,6 @@ class NotifService : NotificationListenerService() {
             processed++
         }
         return processed
-    }
-
-    private fun startForegroundServiceNotification() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Layanan Pemantau Notifikasi Bank",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
-        }
-
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("IBankNotif Aktif")
-            .setContentText("Memantau transaksi otomatis di latar belakang")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-
-        startForeground(NOTIF_ID, notification)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {

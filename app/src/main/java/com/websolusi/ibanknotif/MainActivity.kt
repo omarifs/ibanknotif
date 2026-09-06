@@ -2,9 +2,12 @@ package com.websolusi.ibanknotif
 
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.text.TextUtils
@@ -38,6 +41,8 @@ class MainActivity : AppCompatActivity() {
         tvLog = findViewById(R.id.tvLog)
 
         loadConfig()
+        requestBatteryExemption()
+        requestListenerBind()
 
         findViewById<MaterialButton>(R.id.btnNotifAccess).setOnClickListener {
             if (!isNotifServiceEnabled()) {
@@ -144,6 +149,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         tvLog.text = Config.getLog(this)
+        if (isNotifServiceEnabled() && NotifService.instance == null) requestListenerBind()
     }
 
     private fun loadConfig() {
@@ -183,7 +189,7 @@ class MainActivity : AppCompatActivity() {
                     val service = NotifService.instance
                     if (service != null) action(service)
                     else if (index < delays.lastIndex) retry(index + 1)
-                    else Toast.makeText(this, "Service belum siap. Periksa akses notifikasi dan baterai.", Toast.LENGTH_LONG).show()
+                    else showServiceStuckDialog()
                 }, delays[index])
             }
             if (isNotifServiceEnabled()) retry(0)
@@ -204,11 +210,53 @@ class MainActivity : AppCompatActivity() {
         }
         val service = NotifService.instance
         if (service != null) return service
-        NotificationListenerService.requestRebind(
-            ComponentName(this, NotifService::class.java)
-        )
+        requestListenerBind()
         Toast.makeText(this, "Service sedang diaktifkan...", Toast.LENGTH_SHORT).show()
         Config.appendLog(this, "SERVICE REBIND diminta (izin OK, instance null)")
         return null
+    }
+
+    private fun requestListenerBind() {
+        val cn = ComponentName(this, NotifService::class.java)
+        try {
+            packageManager.setComponentEnabledSetting(
+                cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP
+            )
+            packageManager.setComponentEnabledSetting(
+                cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP
+            )
+        } catch (_: Exception) {}
+        NotificationListenerService.requestRebind(cn)
+    }
+
+    private fun requestBatteryExemption() {
+        val pm = getSystemService(PowerManager::class.java) ?: return
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            })
+        } catch (_: Exception) {}
+    }
+
+    private fun showServiceStuckDialog() {
+        Config.appendLog(this, "SERVICE STUCK: instance null setelah retry")
+        AlertDialog.Builder(this)
+            .setTitle("Service belum aktif")
+            .setMessage("MIUI menahan listener. Matikan batasan baterai IBankNotif, aktifkan Autostart, lalu buka ulang akses notifikasi.")
+            .setPositiveButton("Akses notifikasi") { _, _ ->
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+            .setNeutralButton("Baterai") { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+                }
+            }
+            .setNegativeButton("Tutup", null)
+            .show()
     }
 }
