@@ -99,6 +99,10 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 2. Retry berhenti saat service aktif atau setelah tiga percobaan; tidak ada polling permanen atau `BOOT_COMPLETED` receiver.
 3. Redmi Note 8/MIUI perlu IBankNotif disetel ke **No restrictions**, **Autostart aktif**, dan dikunci pada Recent apps agar listener tidak disuspend sistem.
 4. Build GitHub Actions menggunakan JDK 17 dan menghasilkan artifact `ibanknotif-debug`.
+5. `BootReceiver` ditambahkan untuk memanggil `NotificationListenerService.requestRebind()` setelah `BOOT_COMPLETED` jika akses notifikasi masih aktif.
+6. Manifest menambahkan permission `RECEIVE_BOOT_COMPLETED` dan receiver `.BootReceiver`.
+7. Receiver tidak menjalankan proses berat, tidak membaca notifikasi, dan tidak memaksa izin. MIUI tetap perlu **Autostart aktif**, baterai **No restrictions**, dan aplikasi dikunci pada Recent apps.
+8. Validasi lokal belum berjalan karena environment tidak memiliki Java/JAVA_HOME.
 
 ### F. Crash `startForeground` di NotificationListenerService (Redmi/MIUI)
 1. Gejala: izin notifikasi OK, log `SERVICE REBIND diminta (izin OK, instance null)`, instance tetap null setelah retry.
