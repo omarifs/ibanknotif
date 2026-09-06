@@ -103,7 +103,8 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 ### F. Crash `startForeground` di NotificationListenerService (Redmi/MIUI)
 1. Gejala: izin notifikasi OK, log `SERVICE REBIND diminta (izin OK, instance null)`, instance tetap null setelah retry.
 2. Penyebab: `NotifService.onCreate()` memanggil `startForeground()`. Android 14/MIUI menolak FGS dari listener ter-bind -> service crash sebelum `onListenerConnected`.
-3. Solusi: hapus FGS; set `instance` di `onListenerConnected`; toggle komponen + `requestRebind()` saat app dibuka; minta exemption baterai sekali.
+3. Solusi: hapus FGS; set `instance` hanya di `onListenerConnected`; `requestRebind()` tanpa toggle komponen (toggle MIUI bisa cabut izin listener).
+4. Scan menunggu `connected=true`. Jika gagal: dialog buka akses notifikasi/baterai. Versi app `1.0.1` (versionCode 2).
 
 ---
 

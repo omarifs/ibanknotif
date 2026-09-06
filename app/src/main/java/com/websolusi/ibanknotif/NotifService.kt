@@ -17,28 +17,35 @@ class NotifService : NotificationListenerService() {
     )
 
     companion object {
-        var instance: NotifService? = null
+        @Volatile var instance: NotifService? = null
+        fun ready(): Boolean = instance?.connected == true
     }
+
+    @Volatile private var connected = false
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         instance = this
+        connected = true
         Config.appendLog(this, "SERVICE CONNECTED")
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        connected = false
         if (instance == this) instance = null
         Config.appendLog(this, "SERVICE DISCONNECTED")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        connected = false
         if (instance == this) instance = null
     }
 
     fun scanActiveNotifications(): Int {
-        val activeNotifs = activeNotifications ?: return 0
+        if (!connected) return 0
+        val activeNotifs = try { activeNotifications } catch (_: Exception) { return 0 } ?: return 0
         var processed = 0
         for (sbn in activeNotifs) {
             onNotificationPosted(sbn)

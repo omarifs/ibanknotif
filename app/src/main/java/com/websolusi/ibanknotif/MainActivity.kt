@@ -2,12 +2,10 @@ package com.websolusi.ibanknotif
 
 import android.content.ComponentName
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.text.TextUtils
@@ -27,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cbMandiri: MaterialCheckBox
     private lateinit var cbBri: MaterialCheckBox
     private lateinit var tvLog: android.widget.TextView
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,8 +40,7 @@ class MainActivity : AppCompatActivity() {
         tvLog = findViewById(R.id.tvLog)
 
         loadConfig()
-        requestBatteryExemption()
-        requestListenerBind()
+        if (isNotifServiceEnabled() && !NotifService.ready()) requestListenerBind()
 
         findViewById<MaterialButton>(R.id.btnNotifAccess).setOnClickListener {
             if (!isNotifServiceEnabled()) {
@@ -149,7 +147,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         tvLog.text = Config.getLog(this)
-        if (isNotifServiceEnabled() && NotifService.instance == null) requestListenerBind()
+        if (isNotifServiceEnabled() && !NotifService.ready()) requestListenerBind()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     private fun loadConfig() {
@@ -182,21 +185,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun withService(action: (NotifService) -> Unit) {
-        ensureServiceRunning()?.let(action) ?: run {
-            val delays = longArrayOf(1000, 2000, 4000)
-            fun retry(index: Int) {
-                Handler(Looper.getMainLooper()).postDelayed({
-                    val service = NotifService.instance
-                    if (service != null) action(service)
-                    else if (index < delays.lastIndex) retry(index + 1)
-                    else showServiceStuckDialog()
-                }, delays[index])
-            }
-            if (isNotifServiceEnabled()) retry(0)
-        }
-    }
-
-    private fun ensureServiceRunning(): NotifService? {
         if (!isNotifServiceEnabled()) {
             AlertDialog.Builder(this)
                 .setTitle("Akses Notifikasi Mati")
@@ -206,37 +194,30 @@ class MainActivity : AppCompatActivity() {
                 }
                 .setNegativeButton("Batal", null)
                 .show()
-            return null
+            return
         }
-        val service = NotifService.instance
-        if (service != null) return service
+        val ready = NotifService.instance
+        if (NotifService.ready() && ready != null) {
+            action(ready)
+            return
+        }
         requestListenerBind()
         Toast.makeText(this, "Service sedang diaktifkan...", Toast.LENGTH_SHORT).show()
-        Config.appendLog(this, "SERVICE REBIND diminta (izin OK, instance null)")
-        return null
+        Config.appendLog(this, "SERVICE REBIND diminta (izin OK, belum connected)")
+        val delays = longArrayOf(1000, 2000, 4000)
+        fun retry(index: Int) {
+            handler.postDelayed({
+                val service = NotifService.instance
+                if (NotifService.ready() && service != null) action(service)
+                else if (index < delays.lastIndex) retry(index + 1)
+                else showServiceStuckDialog()
+            }, delays[index])
+        }
+        retry(0)
     }
 
     private fun requestListenerBind() {
-        val cn = ComponentName(this, NotifService::class.java)
-        try {
-            packageManager.setComponentEnabledSetting(
-                cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP
-            )
-            packageManager.setComponentEnabledSetting(
-                cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP
-            )
-        } catch (_: Exception) {}
-        NotificationListenerService.requestRebind(cn)
-    }
-
-    private fun requestBatteryExemption() {
-        val pm = getSystemService(PowerManager::class.java) ?: return
-        if (pm.isIgnoringBatteryOptimizations(packageName)) return
-        try {
-            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:$packageName")
-            })
-        } catch (_: Exception) {}
+        NotificationListenerService.requestRebind(ComponentName(this, NotifService::class.java))
     }
 
     private fun showServiceStuckDialog() {
