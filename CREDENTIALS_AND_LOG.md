@@ -110,6 +110,12 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 3. Solusi: hapus FGS; set `instance` hanya di `onListenerConnected`; `requestRebind()` tanpa toggle komponen (toggle MIUI bisa cabut izin listener).
 4. Scan menunggu `connected=true`. Jika gagal: dialog buka akses notifikasi/baterai. Versi app `1.0.1` (versionCode 2).
 
+### H. Dedup Key Setelah Reinstall
+1. `Sink` membuat SHA-256 `dedup_key` stabil dari bank, package, waktu posting, dan isi notifikasi.
+2. Request aplikasi menyertakan `message.dedup_key`; command Telegram biasa tidak menyertakan field ini dan tetap diproses normal.
+3. Webhook PHP memakai tabel `tele_notif_dedup` dengan primary key atomik untuk menolak scan ulang setelah aplikasi di-uninstall/install.
+4. Implementasi webhook lokal ada di `/mnt/a/laragon/www/telegram/telegram.php`; wajib deploy file itu ke server sebelum APK baru digunakan.
+
 ### G. Custom Command, Flow Pindai AI Terpusat & Fix `/pindahin`
 1. **Kolom Custom Command (UI):** baris format `bank::command` atau `bank::pattern::command`, placeholder `{amount}` diganti nominal. Contoh: `bri::/pindahin bri.ibu bri.vidha {amount}`. Kolom kosong = flow lama normal (default AI + statis).
 2. **Precedence Pindai AI:** custom command cocok → langsung dipakai (offline, tanpa AI); sisa → Gemini (custom diteruskan ke prompt sebagai preferensi); sisa lagi → fallback `Parser` statis (parity dgn Pindai Manual).

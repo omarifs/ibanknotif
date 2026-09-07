@@ -72,6 +72,7 @@ class NotifService : NotificationListenerService() {
         val fullText = "$title $text ${bigText ?: ""}"
         val postTime = sbn.postTime
         val notifKey = "${pkg}_${postTime}_${fullText.hashCode()}"
+        val dedupKey = Sink.dedupKey(bank, pkg, postTime, fullText)
 
         if (Config.isProcessed(this, notifKey)) {
             Config.appendLog(this, "SKIP (DUPLIKAT): $fullText")
@@ -89,7 +90,7 @@ class NotifService : NotificationListenerService() {
         if (learnedCmd != null && !learnedCmd.contains("{amount}")) {
             Config.appendLog(this, "AUTO-SEND (LEARNED): $learnedCmd")
             Config.markProcessed(this, notifKey)
-            Sink.send(this, learnedCmd)
+            Sink.send(this, learnedCmd, dedupKey)
             return
         }
 
@@ -101,7 +102,7 @@ class NotifService : NotificationListenerService() {
         val cmd = Parser.toCommand(tx)
         Config.appendLog(this, "AUTO-SEND: $cmd")
         Config.markProcessed(this, notifKey)
-        Sink.send(this, cmd)
+        Sink.send(this, cmd, dedupKey)
     }
 
     private fun detectBankFromTitle(title: String): String? {

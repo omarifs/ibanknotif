@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
                     val text = ex.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: ""
                     val big = ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString()
                     val full = "$title $text ${big ?: ""}"
-                    Triple(bank, Gemini.RawNotif(pkg, title, text, big), "${pkg}_${sbn.postTime}_${full.hashCode()}")
+                    Triple(bank, Gemini.RawNotif(pkg, title, text, big), Sink.dedupKey(bank, pkg, sbn.postTime, full))
                 }
                 if (notifs.isEmpty()) {
                     Toast.makeText(this, "Tidak ada notifikasi bank yang cocok", Toast.LENGTH_LONG).show()
@@ -174,7 +174,7 @@ class MainActivity : AppCompatActivity() {
                             skip++
                             return@forEachIndexed
                         }
-                        Sink.send(this, r.command)
+                        Sink.send(this, r.command, keyNotif)
                         Config.markProcessed(this, keyNotif)
                         sent++
                     }

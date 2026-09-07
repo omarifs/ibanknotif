@@ -5,12 +5,19 @@ import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 object Sink {
 
     private var updateId = System.currentTimeMillis().toInt()
 
-    fun send(ctx: Context, cmd: String) {
+    fun dedupKey(bank: String, packageName: String, postTime: Long, text: String): String {
+        val input = "v1|$bank|$packageName|$postTime|$text"
+        val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+        return "ibanknotif:v1:" + digest.joinToString("") { "%02x".format(it) }
+    }
+
+    fun send(ctx: Context, cmd: String, dedupKey: String? = null) {
         Thread {
             try {
                 val endpoint = Config.endpoint(ctx)
@@ -25,6 +32,7 @@ object Sink {
                             put("id", chatId)
                         })
                         put("text", cmd)
+                        if (!dedupKey.isNullOrBlank()) put("dedup_key", dedupKey)
                     })
                 }
 
