@@ -114,7 +114,8 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 1. `Sink` membuat SHA-256 `dedup_key` stabil dari bank, package, waktu posting, dan isi notifikasi.
 2. Request aplikasi menyertakan `message.dedup_key`; command Telegram biasa tidak menyertakan field ini dan tetap diproses normal.
 3. Webhook PHP memakai tabel `tele_notif_dedup` dengan primary key atomik untuk menolak scan ulang setelah aplikasi di-uninstall/install.
-4. Implementasi webhook lokal ada di `/mnt/a/laragon/www/telegram/telegram.php`; wajib deploy file itu ke server sebelum APK baru digunakan.
+4. Kode `telegram.php` sudah di-commit & di-push ke repository GitHub `omarifs/telegram` (commit `c8fa4bdf`).
+5. Kode server produksi `dn-arif:/home/websolusi/telegram/telegram.php` sudah dideploy dan terverifikasi live dengan tes dedup idempotent.
 
 ### G. Custom Command, Flow Pindai AI Terpusat & Fix `/pindahin`
 1. **Kolom Custom Command (UI):** baris format `bank::command` atau `bank::pattern::command`, placeholder `{amount}` diganti nominal. Contoh: `bri::/pindahin bri.ibu bri.vidha {amount}`. Kolom kosong = flow lama normal (default AI + statis).
