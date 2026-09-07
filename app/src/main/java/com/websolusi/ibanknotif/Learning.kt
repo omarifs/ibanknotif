@@ -13,6 +13,7 @@ object Learning {
 
     private const val KEY_API = "gemini_api_key"
     private const val KEY_TEMPLATES = "learned_templates"
+    private const val KEY_CUSTOM = "custom_commands"
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences("ibanknotif", Context.MODE_PRIVATE)
@@ -63,8 +64,48 @@ object Learning {
         prefs(ctx).edit().remove(KEY_TEMPLATES).apply()
     }
 
+    // ---- Custom Command (override manual dari kolom UI) ----
+
+    fun customRaw(ctx: Context): String = prefs(ctx).getString(KEY_CUSTOM, "") ?: ""
+
+    fun saveCustom(ctx: Context, text: String) {
+        prefs(ctx).edit().putString(KEY_CUSTOM, text.trim()).apply()
+    }
+
+    /** Ganti placeholder {amount} dengan nominal. */
+    fun fillAmount(cmd: String, amount: Long): String = cmd.replace("{amount}", amount.toString())
+
+    /**
+     * Baris format: `bank::command` atau `bank::pattern::command`.
+     * Satu bagian (command saja) -> hint prompt Gemini, tidak dipakai offline.
+     * Pattern kosong -> hint saja.
+     */
+    fun customCommands(ctx: Context): List<Template> {
+        val out = ArrayList<Template>()
+        for (line in customRaw(ctx).lines()) {
+            val l = line.trim()
+            if (l.isEmpty()) continue
+            val parts = l.split("::", limit = 3)
+            when {
+                parts.size == 3 -> out.add(Template(parts[0].trim(), parts[1].trim(), parts[2].trim()))
+                parts.size == 2 -> out.add(Template(parts[0].trim(), "", parts[1].trim()))
+                else -> out.add(Template("", "", l))
+            }
+        }
+        return out.filter { it.command.isNotBlank() }
+    }
+
     /** Cari template pertama yang cocok dgn teks notif utk bank tertentu. Return command final atau null. */
     fun match(bank: String, text: String, ctx: Context): String? {
+        for (t in customCommands(ctx)) {
+            if (t.bank.isNotBlank() && t.bank != bank) continue
+            if (t.pattern.isBlank()) continue
+            try {
+                val re = Regex(t.pattern, RegexOption.IGNORE_CASE)
+                if (re.containsMatchIn(text)) return t.command
+            } catch (_: Exception) {
+            }
+        }
         for (t in templates(ctx)) {
             if (t.bank.isNotBlank() && t.bank != bank) continue
             try {

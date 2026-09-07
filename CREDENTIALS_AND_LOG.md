@@ -110,6 +110,14 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 3. Solusi: hapus FGS; set `instance` hanya di `onListenerConnected`; `requestRebind()` tanpa toggle komponen (toggle MIUI bisa cabut izin listener).
 4. Scan menunggu `connected=true`. Jika gagal: dialog buka akses notifikasi/baterai. Versi app `1.0.1` (versionCode 2).
 
+### G. Custom Command, Flow Pindai AI Terpusat & Fix `/pindahin`
+1. **Kolom Custom Command (UI):** baris format `bank::command` atau `bank::pattern::command`, placeholder `{amount}` diganti nominal. Contoh: `bri::/pindahin bri.ibu bri.vidha {amount}`. Kolom kosong = flow lama normal (default AI + statis).
+2. **Precedence Pindai AI:** custom command cocok → langsung dipakai (offline, tanpa AI); sisa → Gemini (custom diteruskan ke prompt sebagai preferensi); sisa lagi → fallback `Parser` statis (parity dgn Pindai Manual).
+3. **Pindai AI terpusat (satu langkah):** klik Pindai → otomatis simpan hasil ke template belajar (`Learning.addTemplates`) + kirim ke Telegram (`Sink.send`) + guard duplikat `isProcessed`. Dialog "Simpan Belajar" dihapus.
+4. **Auto-detect (`NotifService`):** `Learning.match` cek custom command dulu, baru template belajar; command custom dgn `{amount}` otomatis diisi nominal.
+5. **Fix `/pindahin`:** `Parser` tangkap rekening tujuan (`nomor rekening tujuan XXXX3508`) → `Transaction.destination`; `toCommand` kini `/pindahin <id_asal> <id_tujuan> <nominal>` (mapping 8533→`bri.ibu`, lain→`bri.vidha`, fallback `tujuan.rek`), bukan lagi hardcode `tujuan.rek`.
+6. **Prompt Gemini toleran:** few-shot contoh BRI/BCA/Mandiri, aturan pindahin asal+tujuan, null hanya utk promo/iklan/tanpa nominal, instruksi regex sederhana IGNORE_CASE.
+
 ---
 
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP

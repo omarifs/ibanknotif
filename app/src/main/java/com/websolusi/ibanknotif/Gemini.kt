@@ -47,11 +47,11 @@ object Gemini {
      * Kirim daftar notif + kamus bank + aturan format ke Gemini.
      * Return list AiResult sejajar dgn `notifs` (null utk yg gagal/tak transaksi).
      */
-    fun extract(ctx: Context, apiKey: String, notifs: List<RawNotif>): List<AiResult?> {
+    fun extract(ctx: Context, apiKey: String, notifs: List<RawNotif>, customLines: List<String> = emptyList()): List<AiResult?> {
         val res = ArrayList<AiResult?>(notifs.size)
         repeat(notifs.size) { res.add(null) }
 
-        val prompt = buildPrompt(notifs)
+        val prompt = buildPrompt(notifs, customLines)
         val body = JSONObject().apply {
             put("contents", JSONArray().apply {
                 put(JSONObject().apply { put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) }) })
@@ -92,23 +92,40 @@ object Gemini {
         return res
     }
 
-    private fun buildPrompt(notifs: List<RawNotif>): String {
+    private fun buildPrompt(notifs: List<RawNotif>, customLines: List<String>): String {
         val kamus = """
             Bank recognition:
-            - 'bri' -> id 'bri.ibu' utk rek 8533, 'bri.vidha' utk rek lain. Default utk topup e-wallet (tanpa rekening): 'bri.ibu'.
+            - 'bri' -> id 'bri.ibu' utk rek 8533 (ibu), 'bri.vidha' utk rek lainnya.
             - 'bca' -> id 'bca'
             - 'mandiri' -> id 'mandiri'
-            Rekening BRI: 8533 = ibu, lainnya = vidha.
+            Mapping rekening BRI: 8533 = ibu, selain itu = vidha.
+
             Aturan command untuk Telegram:
-            - dana MASUK (credited, diterima, masuk, received) -> /tabin <id> <amount>
-            - dana KELUAR (debit, spent, terbayar, transfer keluar, top up e-wallet) -> /tabout <id> <amount>
-            - transfer ANTAR REKENING SENDIRI (transfer dari rek kita ke rek kita sendiri) -> /pindahin <id> tujuan.rek <amount>
+            - dana MASUK (credited, diterima, masuk, received, penerimaan) -> /tabin <id> <amount>
+            - dana KELUAR (debit, spent, terbayar, transfer keluar, top up e-wallet, pembayaran) -> /tabout <id> <amount>
+            - transfer ANTAR REKENING SENDIRI (transfer dari rek. kita ke rek. kita sendiri) -> /pindahin <id_asal> <id_tujuan> <amount>
+              untuk transfer antar rekening, isi id_asal & id_tujuan dari rekening yang tampil di notif (pakai mapping di atas).
             - <amount> = angka bulat rupiah TANPA titik/koma (contoh: 200000, bukan 200.000, bukan Rp200.000).
-            Bila teks tidak mengandung transaksi (promo, info, iklan, saldo biasa tanpa nominal transaksi), output null.
+
+            KAPAN BUKAN TRANSAKSI (output null) HANYA jika: tidak ada nominal rupiah sama sekali, atau teks jelas promo/iklan/info/OIN/saldo tampilan. JANGAN output null bila ada nominal + kata transaksi (debit/kredit/transfer/top up/bayar/terima/penerimaan/dana masuk/dana keluar/received/credited).
+
+            Contoh benar:
+            1. "Top Up ShopeePay ... dari XXXXX8533 sebesar Rp200.000" -> /tabout bri.ibu 200000
+            2. "Transfer dari XXXXX8533 dengan nomor rekening tujuan XXXXX3508 sebesar Rp100.000" -> /pindahin bri.ibu bri.vidha 100000
+            3. myBCA "Kredit Rp1.500.000 dari ..." -> /tabin bca 1500000
+            4. Livin "Debit Rp52.000 untuk QRIS ..." -> /tabout mandiri 52000
+
+            pattern = <regex kotlin IGNORE_CASE yg mencocokkan bagian inti teks notif ini>.
+            Hindari lookbehind/references complex; regex sederhana.
         """.trimIndent()
 
         val sb = StringBuilder()
         sb.append("Kamu ekstraktor transaksi bank. Kamus & aturan:\n").append(kamus).append("\n\n")
+        if (customLines.isNotEmpty()) {
+            sb.append("COMMAND WAJIB DIUTAMAKAN (custom command pengguna, pakai bila skenario cocok, abaikan bila tidak cocok):\n")
+            customLines.forEach { sb.append("- ").append(it).append("\n") }
+            sb.append("\n")
+        }
         sb.append("Berikut daftar notifikasi. Untuk SETIAP notif, tentukan apakah transaksi dan beri:\n")
         sb.append("{\"index\":<n>,\"bank\":\"bri|bca|mandiri\",\"amount\":<long>,\"direction\":\"in|out|pindahin\",\"last4\":\"xxxx\" atau null,\"ewallet\":\"nama\" atau null,\"command\":\"/tab...\",\"pattern\":\"<regex kotlin yg cocok dgn seluruh teks notif ini, flag IGNORE_CASE>\"}\n")
         sb.append("Keluarkan JSON ARRAY hanya (tanpa markdown, tanpa teks lain). Untuk yang bukan transaksi gunakan {\"index\":<n>,\"command\":null}.\n\n")

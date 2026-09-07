@@ -81,8 +81,12 @@ class NotifService : NotificationListenerService() {
         Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
         // 1. coba template hasil belajar AI (prediksi paling akurat)
-        val learnedCmd = Learning.match(bank, fullText, this)
-        if (learnedCmd != null) {
+        var learnedCmd = Learning.match(bank, fullText, this)
+        if (learnedCmd != null && learnedCmd.contains("{amount}")) {
+            val amt = Parser.amountOf(fullText) ?: 0
+            learnedCmd = Learning.fillAmount(learnedCmd, amt)
+        }
+        if (learnedCmd != null && !learnedCmd.contains("{amount}")) {
             Config.appendLog(this, "AUTO-SEND (LEARNED): $learnedCmd")
             Config.markProcessed(this, notifKey)
             Sink.send(this, learnedCmd)

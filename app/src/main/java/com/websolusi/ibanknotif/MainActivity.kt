@@ -21,6 +21,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etEndpoint: TextInputEditText
     private lateinit var etChatId: TextInputEditText
     private lateinit var etApiKey: TextInputEditText
+    private lateinit var etCustomCmd: TextInputEditText
     private lateinit var cbBca: MaterialCheckBox
     private lateinit var cbMandiri: MaterialCheckBox
     private lateinit var cbBri: MaterialCheckBox
@@ -34,6 +35,7 @@ class MainActivity : AppCompatActivity() {
         etEndpoint = findViewById(R.id.etEndpoint)
         etChatId = findViewById(R.id.etChatId)
         etApiKey = findViewById(R.id.etApiKey)
+        etCustomCmd = findViewById(R.id.etCustomCmd)
         cbBca = findViewById(R.id.cbBca)
         cbMandiri = findViewById(R.id.cbMandiri)
         cbBri = findViewById(R.id.cbBri)
@@ -85,47 +87,107 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Tidak ada notifikasi aktif untuk dipindai", Toast.LENGTH_LONG).show()
                     return@withService
                 }
+                // (bank, RawNotif, notifKey)
                 val notifs = active.mapNotNull { sbn ->
-                val pkg = sbn.packageName
-                val bank = Gemini.bankLabel(pkg) ?: return@mapNotNull null
-                val ex = sbn.notification?.extras ?: return@mapNotNull null
-                val title = ex.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() ?: ""
-                val text = ex.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: ""
-                val big = ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString()
-                Gemini.RawNotif(pkg, title, text, big)
-            }
+                    val pkg = sbn.packageName
+                    val bank = Config.bankLabel(pkg) ?: return@mapNotNull null
+                    val ex = sbn.notification?.extras ?: return@mapNotNull null
+                    val title = ex.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() ?: ""
+                    val text = ex.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: ""
+                    val big = ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString()
+                    val full = "$title $text ${big ?: ""}"
+                    Triple(bank, Gemini.RawNotif(pkg, title, text, big), "${pkg}_${sbn.postTime}_${full.hashCode()}")
+                }
                 if (notifs.isEmpty()) {
                     Toast.makeText(this, "Tidak ada notifikasi bank yang cocok", Toast.LENGTH_LONG).show()
                     return@withService
                 }
-                Toast.makeText(this, "Menganalisis ${notifs.size} notif dengan AI...", Toast.LENGTH_SHORT).show()
-            Thread {
-                val results = Gemini.extract(this, key, notifs)
-                val valid = results.filterNotNull().filter { it.command.isNotBlank() }
-                if (valid.isEmpty()) {
-                    runOnUiThread {
-                        Config.appendLog(this, "AI: tidak ada transaksi terdeteksi")
-                        tvLog.text = Config.getLog(this)
-                        Toast.makeText(this, "AI tidak menemukan transaksi", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Menganalisis ${notifs.size} notif...", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val customs = Learning.customCommands(this)
+                    val customLines = customs.mapNotNull { c ->
+                        listOf(c.bank, c.pattern, c.command).filter { it.isNotBlank() }
+                            .joinToString("::").ifBlank { null }
                     }
-                    return@Thread
-                }
-                runOnUiThread {
-                    Config.appendLog(this, "AI DETEKSI ${valid.size} transaksi")
-                    val summary = valid.joinToString("\n\n") { it.render() }
-                    tvLog.text = Config.getLog(this)
-                    AlertDialog.Builder(this)
-                        .setTitle("Hasil Analisis AI")
-                        .setMessage(summary)
-                        .setPositiveButton("Simpan Belajar") { _, _ ->
-                            Learning.addTemplates(this, valid)
-                            Config.appendLog(this, "Belajar tersimpan: ${valid.size} template")
-                            tvLog.text = Config.getLog(this)
-                            Toast.makeText(this, "Template belajar tersimpan", Toast.LENGTH_SHORT).show()
+                    val res = arrayOfNulls<AiResult>(notifs.size)
+                    val geminiIdx = ArrayList<Int>()
+                    val geminiNotifs = ArrayList<Gemini.RawNotif>()
+                    notifs.forEachIndexed { i, (bank, n, _) ->
+                        val full = "${n.title} ${n.text} ${n.bigText ?: ""}"
+                        var made: AiResult? = null
+                        for (c in customs) {
+                            if (c.bank.isNotBlank() && c.bank != bank) continue
+                            if (c.pattern.isBlank()) continue
+                            try {
+                                if (Regex(c.pattern, RegexOption.IGNORE_CASE).containsMatchIn(full)) {
+                                    val amt = Parser.amountOf(full) ?: 0
+                                    val cmd = Learning.fillAmount(c.command, amt)
+                                    if (cmd.isNotBlank() && !cmd.contains("{amount}")) {
+                                        val dir = when {
+                                            cmd.startsWith("/pindahin") -> "pindahin"
+                                            cmd.startsWith("/tabin") -> "in"
+                                            else -> "out"
+                                        }
+                                        made = AiResult(bank, amt, dir, null, null, cmd, c.pattern)
+                                        break
+                                    }
+                                }
+                            } catch (_: Exception) {
+                            }
                         }
-                        .setNegativeButton("Batal", null)
-                        .show()
-                }
+                        res[i] = made
+                        if (made == null) {
+                            geminiIdx.add(i)
+                            geminiNotifs.add(n)
+                        }
+                    }
+                    if (geminiNotifs.isNotEmpty()) {
+                        val gres = Gemini.extract(this, key, geminiNotifs, customLines)
+                        gres.forEachIndexed { k, r ->
+                            val i = geminiIdx[k]
+                            if (r != null && r.command.isNotBlank()) res[i] = r
+                        }
+                    }
+                    notifs.forEachIndexed { i, (bank, n, _) ->
+                        if (res[i] != null) return@forEachIndexed
+                        val full = "${n.title} ${n.text} ${n.bigText ?: ""}"
+                        val tx = Parser.parseByBank(bank, full) ?: return@forEachIndexed
+                        res[i] = AiResult(bank, tx.amount, tx.direction, tx.last4, tx.name, Parser.toCommand(tx), "")
+                    }
+                    val valid = res.filterNotNull().filter { it.command.isNotBlank() }
+                    if (valid.isEmpty()) {
+                        runOnUiThread {
+                            Config.appendLog(this, "AI: tidak ada transaksi terdeteksi")
+                            tvLog.text = Config.getLog(this)
+                            Toast.makeText(this, "AI tidak menemukan transaksi", Toast.LENGTH_LONG).show()
+                        }
+                        return@Thread
+                    }
+                    // terpusat di Pindai: auto-save learning + auto-kirim
+                    Learning.addTemplates(this, valid)
+                    var sent = 0
+                    var skip = 0
+                    res.forEachIndexed { i, r ->
+                        if (r == null || r.command.isBlank()) return@forEachIndexed
+                        val keyNotif = notifs[i].third
+                        if (Config.isProcessed(this, keyNotif)) {
+                            skip++
+                            return@forEachIndexed
+                        }
+                        Sink.send(this, r.command)
+                        Config.markProcessed(this, keyNotif)
+                        sent++
+                    }
+                    runOnUiThread {
+                        Config.appendLog(this, "AI DETEKSI ${valid.size} transaksi, kirim $sent, skip(dub) $skip")
+                        val summary = valid.joinToString("\n\n") { it.render() }
+                        tvLog.text = Config.getLog(this)
+                        AlertDialog.Builder(this)
+                            .setTitle("Hasil Pindai AI")
+                            .setMessage("$summary\n\nTemplate belajar otomatis tersimpan & ${sent} command dikirim ke Telegram.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
                 }.start()
             }
         }
@@ -159,6 +221,7 @@ class MainActivity : AppCompatActivity() {
         etEndpoint.setText(Config.endpoint(this))
         etChatId.setText(Config.chatId(this).toString())
         etApiKey.setText(Learning.apiKey(this))
+        etCustomCmd.setText(Learning.customRaw(this))
         cbBca.isChecked = true
         cbMandiri.isChecked = true
         cbBri.isChecked = true
@@ -169,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         val chatId = etChatId.text?.toString()?.trim()?.toLongOrNull() ?: -1002031892399
         Config.save(this, endpoint, chatId, cbBca.isChecked, cbMandiri.isChecked, cbBri.isChecked)
         Learning.saveApiKey(this, etApiKey.text?.toString() ?: "")
+        Learning.saveCustom(this, etCustomCmd.text?.toString() ?: "")
     }
 
     private fun isNotifServiceEnabled(): Boolean {

@@ -61,6 +61,21 @@
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="Custom Command (bank::command)"
+            android:textStyle="bold"
+            android:layout_marginTop="8dp" />
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etCustomCmd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textMultiLine"
+            android:minLines="3"
+            android:hint="bri::/pindahin bri.ibu bri.vidha {amount}" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="@string/label_banks"
             android:textStyle="bold"
             android:layout_marginTop="8dp" />

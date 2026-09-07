@@ -3,9 +3,10 @@ package com.websolusi.ibanknotif
 data class Transaction(
     val bank: String,
     val amount: Long,
-    val direction: String, // "in" or "out"
+    val direction: String, // "in", "out" or "pindahin"
     val last4: String? = null,
-    val name: String? = null
+    val name: String? = null,
+    val destination: String? = null
 )
 
 object Parser {
@@ -47,6 +48,9 @@ object Parser {
 
     fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
 
+    /** Ekstraksi nominal saja (dipakai custom command offline). */
+    fun amountOf(text: String): Long? = extractAmount(text)
+
     fun parse(pkg: String, text: String): Transaction? {
         val bank = BANK_PKG[pkg] ?: return null
         return parseByBank(bank, text)
@@ -61,8 +65,9 @@ object Parser {
         val direction = detectDirection(bank, lower) ?: return null
         val last4 = extractLast4(bank, text)
         val name = extractName(bank, text)
+        val destination = extractDestination(bank, text)
 
-        return Transaction(bank, amount, direction, last4, name)
+        return Transaction(bank, amount, direction, last4, name, destination)
     }
 
     private fun extractAmount(text: String): Long? {
@@ -115,6 +120,15 @@ object Parser {
         if (masked != null) return masked
 
         return null
+    }
+
+    /** Ambil 4 digit terakhir rekening tujuan dr transfer antar rekening sendiri. */
+    private fun extractDestination(bank: String, text: String): String? {
+        // notif BRI: "dengan nomor rekening tujuan XXXXX3508"
+        val m = Regex("""rekening\s+tujuan[:\s]*(\d{10,20}|[Xx*.\s]*\d{4}\b)""", RegexOption.IGNORE_CASE).find(text)
+            ?: return null
+        val raw = m.groupValues[1]
+        return if (raw.all { it.isDigit() }) raw.takeLast(4) else raw.filter { it.isDigit() }.takeLast(4)
     }
 
     private fun extractName(bank: String, text: String): String? {
@@ -173,7 +187,15 @@ object Parser {
             else -> "tabout"
         }
         return if (cmd == "pindahin") {
-            "/pindahin $id tujuan.rek ${tx.amount}"
+            val tujuan = when (tx.bank) {
+                "bri" -> when (tx.destination) {
+                    "8533" -> "bri.ibu"
+                    null, "" -> "tujuan.rek"
+                    else -> "bri.vidha"
+                }
+                else -> if (tx.destination != null) "${tx.bank}.${tx.destination}" else "tujuan.rek"
+            }
+            "/pindahin $id $tujuan ${tx.amount}"
         } else {
             "/$cmd $id ${tx.amount}"
         }
