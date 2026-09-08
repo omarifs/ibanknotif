@@ -28,6 +28,11 @@ class NotifService : NotificationListenerService() {
         instance = this
         connected = true
         Config.appendLog(this, "SERVICE CONNECTED")
+        // Catch-up: proses notif bank aktif yang tertinggal saat service suspend.
+        Thread {
+            val n = scanActiveNotifications()
+            if (n > 0) Config.appendLog(this, "CATCH-UP (reconnect): $n notif diproses")
+        }.start()
     }
 
     override fun onListenerDisconnected() {

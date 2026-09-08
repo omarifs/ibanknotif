@@ -110,6 +110,13 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 3. Solusi: hapus FGS; set `instance` hanya di `onListenerConnected`; `requestRebind()` tanpa toggle komponen (toggle MIUI bisa cabut izin listener).
 4. Scan menunggu `connected=true`. Jika gagal: dialog buka akses notifikasi/baterai. Versi app `1.0.1` (versionCode 2).
 
+### I. Stabilisasi Kirim, `/pindahin` Atomic & Catch-up Notif
+1. **Fallback `/pindahin` BRI → `bri.vidha`:** `Parser.toCommand` default tujuan tanpa rekening terdeteksi kini `bri.vidha` (sebelumnya `tujuan.rek`). `8533` tetap → `bri.ibu`.
+2. **`Sink.send` antrean FIFO:** 1 worker thread kirim POST berurutan (bukan thread bebas per notif), jeda 500ms antar kirim → menghindari input barengan ke webhook. Signatur `send(ctx, cmd, dedupKey)` tidak berubah.
+3. **`/pindahin` transaksi DB (`telegram.php`):** `pinout`+`pinin` dibungkus `begin_transaction`/`commit`/`rollback` → tidak ada setengah jadi bila salah satu INSERT gagal. Deployed `dn-arif`, test live `pinout` 456 + `pinin` 457 berhasil.
+4. **Catch-up (`NotifService.onListenerConnected`):** saat listener reconnect/suspend pulih, otomatis `scanActiveNotifications()` menangkap notif bank yang tertinggal (terutama kasus "hanya notif terakhir yang terbaca"). Guard `isProcessed` + `dedup_key` mencegah dobel.
+5. Update ini gabungan dari kendala: (a) input barengan gagal di DB, (b) notif pertama tak terbaca bila service mati, (c) fallback tujuan pindahin keliru.
+
 ### H. Dedup Key Setelah Reinstall
 1. `Sink` membuat SHA-256 `dedup_key` stabil dari bank, package, waktu posting, dan isi notifikasi.
 2. Request aplikasi menyertakan `message.dedup_key`; command Telegram biasa tidak menyertakan field ini dan tetap diproses normal.

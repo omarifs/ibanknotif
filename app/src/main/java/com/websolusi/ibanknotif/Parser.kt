@@ -190,7 +190,6 @@ object Parser {
             val tujuan = when (tx.bank) {
                 "bri" -> when (tx.destination) {
                     "8533" -> "bri.ibu"
-                    null, "" -> "tujuan.rek"
                     else -> "bri.vidha"
                 }
                 else -> if (tx.destination != null) "${tx.bank}.${tx.destination}" else "tujuan.rek"
