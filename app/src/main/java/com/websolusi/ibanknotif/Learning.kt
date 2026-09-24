@@ -14,6 +14,7 @@ object Learning {
     private const val KEY_API = "gemini_api_key"
     private const val KEY_TEMPLATES = "learned_templates"
     private const val KEY_CUSTOM = "custom_commands"
+    private const val KEY_CUSTOM_PROMPT = "custom_prompt"
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences("ibanknotif", Context.MODE_PRIVATE)
@@ -70,6 +71,14 @@ object Learning {
 
     fun saveCustom(ctx: Context, text: String) {
         prefs(ctx).edit().putString(KEY_CUSTOM, text.trim()).apply()
+    }
+
+    // ---- Custom Prompt Gemini (instruksi tambahan, prioritas tertinggi) ----
+
+    fun customPrompt(ctx: Context): String = prefs(ctx).getString(KEY_CUSTOM_PROMPT, "") ?: ""
+
+    fun saveCustomPrompt(ctx: Context, text: String) {
+        prefs(ctx).edit().putString(KEY_CUSTOM_PROMPT, text.trim()).apply()
     }
 
     /** Ganti placeholder {amount} dengan nominal. */

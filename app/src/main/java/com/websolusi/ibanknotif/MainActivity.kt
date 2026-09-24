@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etChatId: TextInputEditText
     private lateinit var etApiKey: TextInputEditText
     private lateinit var etCustomCmd: TextInputEditText
+    private lateinit var etCustomPrompt: TextInputEditText
     private lateinit var cbBca: MaterialCheckBox
     private lateinit var cbMandiri: MaterialCheckBox
     private lateinit var cbBri: MaterialCheckBox
@@ -36,6 +37,7 @@ class MainActivity : AppCompatActivity() {
         etChatId = findViewById(R.id.etChatId)
         etApiKey = findViewById(R.id.etApiKey)
         etCustomCmd = findViewById(R.id.etCustomCmd)
+        etCustomPrompt = findViewById(R.id.etCustomPrompt)
         cbBca = findViewById(R.id.cbBca)
         cbMandiri = findViewById(R.id.cbMandiri)
         cbBri = findViewById(R.id.cbBri)
@@ -109,6 +111,7 @@ class MainActivity : AppCompatActivity() {
                         listOf(c.bank, c.pattern, c.command).filter { it.isNotBlank() }
                             .joinToString("::").ifBlank { null }
                     }
+                    val customPrompt = Learning.customPrompt(this)
                     val res = arrayOfNulls<AiResult>(notifs.size)
                     val geminiIdx = ArrayList<Int>()
                     val geminiNotifs = ArrayList<Gemini.RawNotif>()
@@ -142,7 +145,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     if (geminiNotifs.isNotEmpty()) {
-                        val gres = Gemini.extract(this, key, geminiNotifs, customLines)
+                        val gres = Gemini.extract(this, key, geminiNotifs, customLines, customPrompt)
                         gres.forEachIndexed { k, r ->
                             val i = geminiIdx[k]
                             if (r != null && r.command.isNotBlank()) res[i] = r
@@ -222,6 +225,7 @@ class MainActivity : AppCompatActivity() {
         etChatId.setText(Config.chatId(this).toString())
         etApiKey.setText(Learning.apiKey(this))
         etCustomCmd.setText(Learning.customRaw(this))
+        etCustomPrompt.setText(Learning.customPrompt(this))
         cbBca.isChecked = true
         cbMandiri.isChecked = true
         cbBri.isChecked = true
@@ -233,6 +237,7 @@ class MainActivity : AppCompatActivity() {
         Config.save(this, endpoint, chatId, cbBca.isChecked, cbMandiri.isChecked, cbBri.isChecked)
         Learning.saveApiKey(this, etApiKey.text?.toString() ?: "")
         Learning.saveCustom(this, etCustomCmd.text?.toString() ?: "")
+        Learning.saveCustomPrompt(this, etCustomPrompt.text?.toString() ?: "")
     }
 
     private fun isNotifServiceEnabled(): Boolean {

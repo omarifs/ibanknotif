@@ -76,6 +76,21 @@
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="Custom Prompt Gemini"
+            android:textStyle="bold"
+            android:layout_marginTop="8dp" />
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etCustomPrompt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textMultiLine"
+            android:minLines="3"
+            android:hint="Sisipan instruksi tambahan untuk Gemini (opsional). Contoh: BCA ke BRI via Flip = /pindahin bca bri.ibu" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="@string/label_banks"
             android:textStyle="bold"
             android:layout_marginTop="8dp" />

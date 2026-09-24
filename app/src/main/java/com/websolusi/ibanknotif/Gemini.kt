@@ -47,11 +47,11 @@ object Gemini {
      * Kirim daftar notif + kamus bank + aturan format ke Gemini.
      * Return list AiResult sejajar dgn `notifs` (null utk yg gagal/tak transaksi).
      */
-    fun extract(ctx: Context, apiKey: String, notifs: List<RawNotif>, customLines: List<String> = emptyList()): List<AiResult?> {
+    fun extract(ctx: Context, apiKey: String, notifs: List<RawNotif>, customLines: List<String> = emptyList(), customPrompt: String? = null): List<AiResult?> {
         val res = ArrayList<AiResult?>(notifs.size)
         repeat(notifs.size) { res.add(null) }
 
-        val prompt = buildPrompt(notifs, customLines)
+        val prompt = buildPrompt(notifs, customLines, customPrompt)
         val body = JSONObject().apply {
             put("contents", JSONArray().apply {
                 put(JSONObject().apply { put("parts", JSONArray().apply { put(JSONObject().apply { put("text", prompt) }) }) })
@@ -92,7 +92,7 @@ object Gemini {
         return res
     }
 
-    private fun buildPrompt(notifs: List<RawNotif>, customLines: List<String>): String {
+    private fun buildPrompt(notifs: List<RawNotif>, customLines: List<String>, customPrompt: String?): String {
         val kamus = """
             Bank recognition:
             - 'bri' -> id 'bri.ibu' utk rek 8533 (ibu), 'bri.vidha' utk rek lainnya.
@@ -125,6 +125,10 @@ object Gemini {
             sb.append("COMMAND WAJIB DIUTAMAKAN (custom command pengguna, pakai bila skenario cocok, abaikan bila tidak cocok):\n")
             customLines.forEach { sb.append("- ").append(it).append("\n") }
             sb.append("\n")
+        }
+        if (!customPrompt.isNullOrBlank()) {
+            sb.append("INSTRUKSI TAMBAHAN DARI PENGGUNA (prioritas tertinggi, menimpa aturan di atas bila bertentangan):\n")
+            sb.append(customPrompt.trim()).append("\n\n")
         }
         sb.append("Berikut daftar notifikasi. Untuk SETIAP notif, tentukan apakah transaksi dan beri:\n")
         sb.append("{\"index\":<n>,\"bank\":\"bri|bca|mandiri\",\"amount\":<long>,\"direction\":\"in|out|pindahin\",\"last4\":\"xxxx\" atau null,\"ewallet\":\"nama\" atau null,\"command\":\"/tab...\",\"pattern\":\"<regex kotlin yg cocok dgn seluruh teks notif ini, flag IGNORE_CASE>\"}\n")

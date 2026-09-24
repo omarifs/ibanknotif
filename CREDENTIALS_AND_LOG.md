@@ -131,6 +131,7 @@ Proyek ini adalah aplikasi Android untuk membaca notifikasi bank (BCA, myBCA, Ma
 4. **Auto-detect (`NotifService`):** `Learning.match` cek custom command dulu, baru template belajar; command custom dgn `{amount}` otomatis diisi nominal.
 5. **Fix `/pindahin`:** `Parser` tangkap rekening tujuan (`nomor rekening tujuan XXXX3508`) → `Transaction.destination`; `toCommand` kini `/pindahin <id_asal> <id_tujuan> <nominal>` (mapping 8533→`bri.ibu`, lain→`bri.vidha`, fallback `tujuan.rek`), bukan lagi hardcode `tujuan.rek`.
 6. **Prompt Gemini toleran:** few-shot contoh BRI/BCA/Mandiri, aturan pindahin asal+tujuan, null hanya utk promo/iklan/tanpa nominal, instruksi regex sederhana IGNORE_CASE.
+7. **Kolom Custom Prompt Gemini (UI):** field bebas `bank::command` tetap, tambah field bebas "Custom Prompt" disisipkan ke prompt Gemini sebagai `INSTRUKSI TAMBAHAN DARI PENGGUNA` (prioritas tertinggi, menimpa aturan kamus bila bertentangan). Dipakai saat mapping offline / algoritma lokal gagal. Contoh kasus nyata: transfer BCA→BRI via Flip (TPT Lentera Global) salah diklasifikasi `tabin`/`tabout`, harusnya `/pindahin bca bri.ibu`. Instruksi ini dipasok lewat kolom custom prompt; hasil scan Gemini tetap otomatis jadi template belajar offline (`Learning.addTemplates`), sehingga NotifService berikutnya deteksi benar tanpa AI & tanpa error ulang.
 
 ---
 
