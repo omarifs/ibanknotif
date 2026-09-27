@@ -250,6 +250,52 @@ kembali ke history pada 2026-09-05, empat hari setelah sempat dihapus pada
 2026-09-01. `.gitignore` hanya berlaku untuk file yang BELUM ter-track.
 Perbaikannya `git rm --cached`, bukan `git rm`.
 
+### K. Empat Rounds Build Gagal, Akar Penyebabnya (2026-09-27)
+
+Commit: `a262539` (XML), `119d617` (tiga sintaks), `ccd6a2e` (`.entries`).
+Semua tertangkap CI, bukan build lokal.
+
+**1. `:app:processDebugResources` - dua attribute XML salah** di
+`dialog_rules.xml`, keduanya salah ketik yang saya tulis sendiri.
+`android:spellCheckLanguage` tidak dikenal dan dihapus;
+`android:inputType="textMultiLine|noSuggestions"` tidak valid karena tokennya
+`textNoSuggestions`, bukan `noSuggestions`.
+
+**2. `:app:compileDebugKotlin` - satu keyword jadi sumber semua error.**
+`Rule.kt` menulis `val when: List<String>`. `when` adalah keyword Kotlin,
+jadi parse gagal di situ. Semua error berikutnya - `Expecting '{'`,
+`receiver type mismatch`, `Unresolved reference: entries` - adalah efek
+beruntun, termasuk di `Gemini.kt`, `RuleStore.kt`, dan `MainActivity.kt`
+yang hanya mereferensikannya.
+
+Pelajaran: kalau tiba-tiba banyak "Expecting '{'" sekaligus di beberapa file,
+periksa dulu file yang **paling atas** disebut di daftar error. Di situ
+biasanya ada satu penyebab tunggal.
+
+Kunci JSON tetap `"when"` karena itu kontrak dengan prompt Gemini, jadi 13
+aturan di `assets/rules.json` tidak perlu disentuh. Yang diganti hanya nama
+property Kotlin-nya, menjadi `conditions`.
+
+**3. String literal tidak tertutup** di `Gemini.kt:230`. Baris itu berakhir
+dengan `\"`, jadi kutipannya ter-escape dan string tidak pernah tutup; baris
+berikutnya jadi kelanjutan. Gejalanya `Unexpected token in a string template`.
+Berkas yang ditulis lewat heredoc paling rawan pola ini.
+
+**4. `set.entries` dan `current.entries` - bug yang sama, dua kali.**
+`RuleSet` punya `accounts`, bukan `entries`. Yang pertama di
+`RuleStore.kt:158`, yang kedua di `Gemini.kt:246` pada sesi yang sama,
+setelah yang pertama sudah diperbaiki. Yang kedua seharusnya tertangkap pola
+yang sama kalau setelah fix selalu `grep` seluruh project, bukan hanya
+lokasi yang dilaporkan.
+
+**Yang tidak tervalidasi secara lokal.** Environment ini tidak punya JDK
+maupun Android SDK. Pemeriksaan yang saya lakukan - balance kurung kurawal,
+port logika ke Python, scan keyword, scan kutip ganjil - semuanya proves
+bentuk, bukan kebenaran kompilasi. Balance kurung kurawal bahkan buta
+terhadap dua kelas kesalahan di atas, karena kurungnya sendiri tetap
+seimbang. Setelah build hijau, 37 test JUnit di `app/src/test/` baru
+pertama kali benar-benar dieksekusi.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 - `/tabin <id> <nominal> [YYYY-MM-DD]` Transaksi masuk

@@ -207,6 +207,21 @@ nyata ada di `app/src/test/java/com/websolusi/ibanknotif/ParserTest.kt`.
 
 ## Jebakan yang sudah pernah terjadi di repo ini
 
+- **Jangan pakai `when` sebagai nama property.** Ini yang pernah membuat satu
+  baris gagal dan arrast 4 file lain jadi error. Kalau pakai nama field JSON
+  yang sama dengan keyword Kotlin, pakai backtick **atau** ganti nama
+  property-nya dan biarkan kunci JSON tetap. Yang dipakai di sini: property
+  `conditions`, kunci JSON tetap `"when"` karena itu kontrak dengan Gemini.
+- **`RuleSet` tidak punya `entries`.** Field-nya `accounts`. Sudah salah
+  dua kali di file berbeda pada sesi yang sama. Setelah memperbaiki pola
+  seperti ini, selalu `grep` seluruh project - jangan hanya di lokasi yang
+  dilaporkan.
+- **String literal harus menutup di baris yang sama.** Baris yang berakhir
+  dengan `\"` membuat kutipan ter-escape dan baris berikutnya jadi kelanjutan.
+  Kalau menulis lewat heredoc, cek baris yang berakhir dengan backslash.
+- **Cek attribute XML dari daftar yang benar.** `android:spellCheckLanguage`
+  tidak ada, dan `inputType` butuh `textNoSuggestions`, bukan `noSuggestions`.
+  AAPT hanya menangkap ini, tidak ada pemeriksaan lokal yang bisa dipakai.
 - `.gitignore` hanya berlaku untuk file yang **belum** ter-track. Kalau file
   pernah ter-commit, `git add .` tetap mengambilnya. Perbaikannya
   `git rm --cached`, bukan `git rm`.
@@ -215,5 +230,8 @@ nyata ada di `app/src/test/java/com/websolusi/ibanknotif/ParserTest.kt`.
   screenshot.
 - `RuleStore.load()` dipanggil dari listener notifikasi. Kalau ditambah
   panggilan jaringan di situ, notifikasi bank ikut tertahan.
-- Environment ini tidak punya JDK maupun Android SDK, jadi `./gradlew` tidak
-  bisa dijalankan. Verifikasi logika lewat port ke Python.
+- **Balance kurung kurawal bukan verifikasi kompilasi.** Environment ini
+  tidak punya JDK maupun Android SDK, jadi `./gradlew` tidak bisa dijalankan
+  di sini. Pemeriksaan statis hanya membuktikan bentuk. Jauh lebih baik verifikasi lewat build di
+  mesin yang punya SDK daripada menyatakan "sudah terverifikasi" hanya
+  karena kurungnya seimbang.
