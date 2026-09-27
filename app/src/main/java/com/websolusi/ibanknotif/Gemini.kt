@@ -243,7 +243,7 @@ object Gemini {
         sb.append("   /tabout <id> {amount}\n")
         sb.append("   /pindahin {src} {dst} {amount}\n")
         sb.append("4. {src} dan {dst} memakai pemetaan rekening: ")
-            .append(current.entries.joinToString(", ") { "${it.key} = ${it.value}" }).append("\n")
+            .append(current.accounts.entries.joinToString(", ") { "${it.key} = ${it.value}" }).append("\n")
         sb.append("5. Kalau memang tidak boleh ada yang dicatat, pakai \"stop\": true dan \"command\": \"\".\n")
         sb.append("6. 'priority' harus unik per bank. Pindahkan nomor, jangan berbagi dengan aturan lain.\n\n")
         sb.append("ATURAN YANG SUDAH ADA:\n")
