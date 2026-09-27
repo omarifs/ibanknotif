@@ -23,10 +23,9 @@
             android:background="#f2f4f7"
             android:fontFamily="monospace"
             android:gravity="top|start"
-            android:inputType="textMultiLine|noSuggestions"
+            android:inputType="textMultiLine|textNoSuggestions"
             android:padding="10dp"
             android:scrollbars="vertical"
-            android:spellCheckLanguage=""
             android:textSize="12sp" />
 
         <TextView
