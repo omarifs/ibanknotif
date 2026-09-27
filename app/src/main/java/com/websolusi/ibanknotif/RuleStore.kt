@@ -155,7 +155,7 @@ object RuleStore {
         val sb = StringBuilder()
         sb.append("versi ").append(set.version).append(" (").append(asal).append(")\n")
         sb.append("rekening: ")
-        sb.append(set.entries.joinToString(", ") { "${it.key} = ${it.value}" })
+        sb.append(set.accounts.entries.joinToString(", ") { "${it.key} = ${it.value}" })
         sb.append("\n\n")
         val shown = LinkedHashSet<String>()
         for (r in set.rules.sortedByDescending { it.priority }) {
@@ -164,7 +164,7 @@ object RuleStore {
             sb.append(if (r.enabled) "" else "(mati) ")
             sb.append(r.name).append("\n")
             sb.append("     bank=").append(r.bank)
-            sb.append("  when=").append(r.when.joinToString(" & "))
+            sb.append("  when=").append(r.conditions.joinToString(" & "))
             sb.append("\n     -> ").append(if (r.stop) "diam" else r.command).append("\n\n")
         }
         return sb.toString()

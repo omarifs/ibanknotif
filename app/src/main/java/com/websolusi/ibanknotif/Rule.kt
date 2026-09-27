@@ -21,14 +21,14 @@ data class Rule(
     val bank: String,            // "bri" | "bca" | "mandiri" | "*"
     val priority: Int,            // besar dievaluasi lebih dulu
     val enabled: Boolean,
-    val when: List<String>,
+    val conditions: List<String>,
     val command: String,          // "" kalau dipakai bersama stop = true
     val stop: Boolean = false,
     /** Dipakai untuk {id} saat rekening asal dan tujuan tidak terbaca sama sekali. */
     val defaultId: String? = null
 ) {
     fun matches(tx: Parsed, accounts: Map<String, String>): Boolean =
-        when.all { RuleSet.holds(it, tx, accounts) }
+        conditions.all { RuleSet.holds(it, tx, accounts) }
 
     /** Ganti placeholder dengan nilai nyata. Null kalau placeholder tak terpenuhi. */
     fun render(tx: Parsed, accounts: Map<String, String>): String? {
@@ -187,7 +187,7 @@ data class RuleSet(
                     bank = r.optString("bank", "*"),
                     priority = r.optInt("priority", 0),
                     enabled = r.optBoolean("enabled", true),
-                    when = (0 until w.length()).map { w.getString(it) },
+                    conditions = (0 until w.length()).map { w.getString(it) },
                     command = r.optString("command", ""),
                     stop = r.optBoolean("stop", false),
                     defaultId = r.optString("defaultId").ifBlank { null }
@@ -210,7 +210,7 @@ data class RuleSet(
                     put("bank", r.bank)
                     put("priority", r.priority)
                     put("enabled", r.enabled)
-                    put("when", JSONArray(r.when))
+                    put("when", JSONArray(r.conditions))
                     put("command", r.command)
                     if (r.stop) put("stop", true)
                     r.defaultId?.let { put("defaultId", it) }
@@ -236,10 +236,10 @@ object RuleValidator {
         if (set.rules.any { it.id == rule.id && it !== rule }) {
             return "id '${rule.id}' sudah dipakai"
         }
-        if (rule.when.isEmpty()) {
+        if (rule.conditions.isEmpty()) {
             return "kondisi 'when' kosong. Pakai 'always' bila memang tanpa syarat."
         }
-        for (t in rule.when) {
+        for (t in rule.conditions) {
             RuleSet.checkToken(t)?.let { return it }
         }
 

@@ -415,7 +415,7 @@ class MainActivity : AppCompatActivity() {
                         "id      : ${rule.id}\n" +
                             "nama    : ${rule.name}\n" +
                             "bank    : ${rule.bank}   priority: ${rule.priority}\n" +
-                            "when    : ${rule.when.joinToString(" & ")}\n" +
+                            "when    : ${rule.conditions.joinToString(" & ")}\n" +
                             "command : ${if (rule.stop) "diam" else rule.command}\n\n" +
                             "Usulan ini belum dipakai. Simpan lewat tombol Aturan Klasifikasi."
                     )

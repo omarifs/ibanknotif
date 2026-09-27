@@ -214,7 +214,10 @@ class RuleValidatorTest {
         command: String = "/tabout {id} {amount}",
         priority: Int = 50,
         stop: Boolean = false
-    ) = Rule(id, "uji", "bri", priority, true, when_, command, stop)
+    ) = Rule(
+            id = id, name = "uji", bank = "bri", priority = priority, enabled = true,
+            conditions = when_, command = command, stop = stop
+        )
 
     @Test
     fun `aturan kosong ditolak`() {

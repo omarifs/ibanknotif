@@ -208,7 +208,7 @@ object Gemini {
                 bank = o.optString("bank", "*"),
                 priority = o.optInt("priority", 0),
                 enabled = o.optBoolean("enabled", true),
-                when = (0 until w.length()).map { w.getString(it) },
+                conditions = (0 until w.length()).map { w.getString(it) },
                 command = o.optString("command", ""),
                 stop = o.optBoolean("stop", false),
                 defaultId = o.optString("defaultId").ifBlank { null }
@@ -227,9 +227,7 @@ object Gemini {
         customPrompt: String?
     ): String {
         val sb = StringBuilder()
-        sb.append("Kamu diminta proposes SATU aturan klasifikasi baru untuk aplikasi\
-")
-            .append("pembaca notifikasi bank. Balas HANYA JSON array, tanpa teks lain.\n\n")
+        sb.append("Kamu diminta proposes SATU aturan klasifikasi baru untuk aplikasi pembaca notifikasi bank. Balas HANYA JSON array, tanpa teks lain.\n\n")
         sb.append("KOSAKATA 'when' YANG BOLEH (tidak ada yang lain, tanpa operator bebas):\n")
         sb.append("  ").append(RuleSet.PREDICATES.joinToString(", ")).append("\n")
         sb.append("  has:kata    not:kata    has_any:kata1|kata2    has_none:kata1|kata2\n")
@@ -251,7 +249,7 @@ object Gemini {
         sb.append("ATURAN YANG SUDAH ADA:\n")
         for (r in current.rules.sortedByDescending { it.priority }) {
             sb.append("  p").append(r.priority).append(" [").append(r.bank).append("] ")
-                .append(r.id).append("  when=").append(r.when.joinToString(" & "))
+                .append(r.id).append("  when=").append(r.conditions.joinToString(" & "))
                 .append("  -> ").append(if (r.stop) "diam" else r.command).append("\n")
         }
         sb.append("\nHASIL SEKARANG untuk notifikasi di bawah (ini yang salah):\n")
