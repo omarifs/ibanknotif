@@ -80,16 +80,28 @@ object Config {
     }
 
     fun isProcessed(ctx: Context, key: String): Boolean {
-        val set = prefs(ctx).getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()
-        return set.contains(key)
+        val p = prefs(ctx)
+        synchronized(p) {
+            val set = p.getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()
+            return set.contains(key)
+        }
     }
 
-    fun markProcessed(ctx: Context, key: String) {
+    /**
+     * Tandai notif sebagai sudah diproses.
+     * Wajib commit() sinkron + satu kunci untuk beberapa key sekaligus: kalau
+     * apply() dipakai, panggilan berikutnya bisa membaca daftar lama dan
+     * menimpa key yang baru saja ditulis -> guard anti dobel jadi bocor.
+     */
+    fun markProcessed(ctx: Context, vararg keys: String) {
+        if (keys.isEmpty()) return
         val p = prefs(ctx)
-        val current = (p.getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()).toMutableSet()
-        current.add(key)
-        // jaga ukuran max 200 key agar SharedPreferences tak membengkak
-        val trimmed = if (current.size > 200) current.toList().takeLast(200).toSet() else current
-        p.edit().putStringSet(KEY_PROCESSED_KEYS, trimmed).apply()
+        synchronized(p) {
+            val current = (p.getStringSet(KEY_PROCESSED_KEYS, emptySet()) ?: emptySet()).toMutableSet()
+            current.addAll(keys)
+            // jaga ukuran max 200 key agar SharedPreferences tak membengkak
+            val trimmed = if (current.size > 200) current.toList().takeLast(200).toSet() else current
+            p.edit().putStringSet(KEY_PROCESSED_KEYS, trimmed).commit()
+        }
     }
 }

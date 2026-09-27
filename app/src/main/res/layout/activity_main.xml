@@ -61,21 +61,6 @@
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Custom Command (bank::command)"
-            android:textStyle="bold"
-            android:layout_marginTop="8dp" />
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/etCustomCmd"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="textMultiLine"
-            android:minLines="3"
-            android:hint="bri::/pindahin bri.ibu bri.vidha {amount}" />
-
-        <com.google.android.material.textview.MaterialTextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:text="Custom Prompt Gemini"
             android:textStyle="bold"
             android:layout_marginTop="8dp" />
@@ -85,8 +70,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="textMultiLine"
-            android:minLines="3"
-            android:hint="Sisipan instruksi tambahan untuk Gemini (opsional). Contoh: BCA ke BRI via Flip = /pindahin bca bri.ibu" />
+            android:minLines="5"
+            android:hint="Aturan tambahan untuk Gemini, dipisah dari aturan bawaan. Contoh: Flip BCA ke BRI harus /pindahin, bukan tabin/tabout" />
 
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
@@ -130,6 +115,22 @@
             android:layout_height="wrap_content"
             android:text="Pindai Notif dengan AI (Gemini)"
             android:layout_marginTop="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRules"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Aturan Klasifikasi"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFixAi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Perbaiki Aturan dengan AI"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnClearLearn"

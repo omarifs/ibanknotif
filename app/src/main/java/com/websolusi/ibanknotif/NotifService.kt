@@ -84,30 +84,48 @@ class NotifService : NotificationListenerService() {
             return
         }
 
+        // Anti catat ganda per transaksi, dicek SEBELUM jalur apa pun: dua notif BRI
+        // untuk satu transfer memakai waktu event yang sama, jadi yang kedua harus
+        // tertahan. Ini yang mencegah /pindahin dan /tabout tercatat untuk 1 transfer.
+        val amount = Parser.amountOf(fullText)
+        val txSig = if (amount != null) Parser.transactionSignature(bank, fullText, amount) else null
+        val newKeys = arrayOf(notifKey) + listOfNotNull(txSig).toTypedArray()
+        if (txSig != null && Config.isProcessed(this, txSig)) {
+            Config.appendLog(this, "SKIP (TRANSAKSI SAMA SUDAH DICATAT): $fullText")
+            return
+        }
+
         Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
-        // 1. coba template hasil belajar AI (prediksi paling akurat)
-        var learnedCmd = Learning.match(bank, fullText, this)
-        if (learnedCmd != null && learnedCmd.contains("{amount}")) {
-            val amt = Parser.amountOf(fullText) ?: 0
-            learnedCmd = Learning.fillAmount(learnedCmd, amt)
+        // 1. Template hasil belajar (pola dari Gemini) jadi cadangan klasifikasi
+        //    yang sudah dikoreksi manual sebelumnya.
+        val learned = Learning.match(bank, fullText, this)?.let { cmd ->
+            if (cmd.contains("{amount}")) Learning.fillAmount(cmd, Parser.amountOf(fullText) ?: 0L) else cmd
         }
-        if (learnedCmd != null && !learnedCmd.contains("{amount}")) {
-            Config.appendLog(this, "AUTO-SEND (LEARNED): $learnedCmd")
-            Config.markProcessed(this, notifKey)
-            Sink.send(this, learnedCmd, dedupKey)
+        if (learned != null && !learned.contains("{amount}") && RuleEngine.isSendable(learned)) {
+            Config.appendLog(this, "AUTO-SEND (LEARNED): $learned")
+            Config.markProcessed(this, *newKeys)
+            Sink.send(this, learned, dedupKey)
             return
         }
 
-        // 2. fallback ke parser regex statis
-        val tx = Parser.parseByBank(bank, fullText) ?: run {
-            Config.appendLog(this, "SKIP (PARSE GAGAL): $fullText")
+        // 2. Aturan. Ini penentu utama, dan datanya bisa diperbaiki dari dalam
+        //    aplikasi tanpa build ulang.
+        val parsed = Parser.parseByBank(bank, fullText) ?: run {
+            Config.appendLog(this, "SKIP (TIDAK ADA NOMINAL): $fullText")
             return
         }
-        val cmd = Parser.toCommand(tx)
-        Config.appendLog(this, "AUTO-SEND: $cmd")
-        Config.markProcessed(this, notifKey)
-        Sink.send(this, cmd, dedupKey)
+        val rules = RuleStore.load(this)
+        val decision = RuleEngine.decide(parsed, rules)
+        if (decision.outcome == null) {
+            val alasan = if (decision.stoppedBy != null) "diam: ${decision.stoppedBy.name}" else "tidak ada aturan yang cocok"
+            Config.appendLog(this, "SKIP ($alasan): $fullText")
+            return
+        }
+        val out = decision.outcome
+        Config.appendLog(this, "AUTO-SEND [${out.ruleId}]: ${out.command}")
+        Config.markProcessed(this, *newKeys)
+        Sink.send(this, out.command, dedupKey)
     }
 
     private fun detectBankFromTitle(title: String): String? {

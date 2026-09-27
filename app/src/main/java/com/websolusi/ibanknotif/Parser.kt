@@ -1,14 +1,25 @@
 package com.websolusi.ibanknotif
 
-data class Transaction(
+/**
+ * Hasil ekstraksi dari teks notifikasi. Tidak ada keputusan di sini:
+ * arah transaksi, pemetaan rekening, dan bentuk command semuanya datang
+ * dari [RuleSet] lewat [RuleEngine].
+ */
+data class Parsed(
     val bank: String,
     val amount: Long,
-    val direction: String, // "in", "out" or "pindahin"
-    val last4: String? = null,
-    val name: String? = null,
-    val destination: String? = null
+    val source: String?,      // 4 digit rekening asal
+    val destination: String?, // 4 digit rekening tujuan
+    val name: String?,
+    val text: String
 )
 
+/**
+ * Ekstraksi primitif dari teks notifikasi: nominal, rekening asal, rekening
+ * tujuan, waktu event. Regex di sini sengaja tetap di dalam kode karena ini
+ * lapisan paling rendah. Yang sering diperbaiki justru keputusan di atasnya,
+ * dan itu kini ditangani [RuleEngine].
+ */
 object Parser {
 
     private val BANK_PKG = mapOf(
@@ -21,119 +32,52 @@ object Parser {
         "id.co.bri.www.brimo" to "bri"
     )
 
-    private val IN_KEYWORDS = listOf(
-        "masuk", "kredit", "menerima", "terima", "diterima", "received",
-        "berhasil menerima", "incoming", "credit"
-    )
-
-    private val OUT_KEYWORDS = listOf(
-        "keluar", "debit", "transfer", "bayar", "beli", "sent", "transferred",
-        "potong", "tagihan", "pembayaran", "withdrawal",
-        "tarik", "pengiriman", "dikirim", "terkirim",
-        "outgoing", "debit", "payment", "purchase", "spent",
-        "top up", "topup", "top-up", "isi saldo"
-    )
-
-    private val EWALLET_KEYWORDS = listOf(
-        "shopeepay", "shopee pay", "gopay", "go-pay", "ovo", "dana",
-        "linkaja", "link aja", "qris", "wallet", "e-wallet", "ewallet", "dompet"
-    )
-
     private val AMOUNT_RE = Regex("""(?:IDR|Rp)[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
     private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp|idr)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
     private val REKENING_RE = Regex("""rekening[:\s]*(\d{10,20})""", RegexOption.IGNORE_CASE)
-    private val REKENING_MASKED_RE = Regex("""([Xx*][Xx*.]*\s*)?(\d{4})\b""")
     private val BRI_NAME_RE = Regex("""KET\.[A-Z0-9]*?_(?:\d+_)*([A-Za-z ]+)\s*$""")
     private val BRI_NAMA_AFTER_KET_RE = Regex("""KET\.[A-Z0-9_]+?\s+([A-Z][A-Za-z .]+)\s*$""")
 
+    private val ACCOUNT_TOKEN = """([Xx*][Xx*.\- ]*)?(\d{4})\b"""
+
+    // Rekening ASAL: selalu mengikuti kata "dari" / "rekening asal".
+    private val SRC_RES = listOf(
+        Regex("""dari\s+(?:rekening\s+tabungan\s+|rekening\s+|rek\.\s*)?$ACCOUNT_TOKEN""", RegexOption.IGNORE_CASE),
+        Regex("""dari\s+(?:rekening\s+)?(\d{7,20})\b""", RegexOption.IGNORE_CASE),
+        Regex("""rekening\s+(?:asal|sumber)\s*[:\s]*$ACCOUNT_TOKEN""", RegexOption.IGNORE_CASE)
+    )
+
+    // Rekening TUJUAN: "nomor rekening tujuan" / "rekening tujuan" / "ke rekening".
+    private val DST_RES = listOf(
+        Regex(
+            """(?:nomor\s+rekening\s+tujuan|rekening\s+tujuan|ke\s+rekening|ke\s+rek\.)[:\s]*$ACCOUNT_TOKEN""",
+            RegexOption.IGNORE_CASE
+        ),
+        Regex("""(?:nomor\s+rekening\s+tujuan|ke\s+rekening)[:\s]*(\d{7,20})\b""", RegexOption.IGNORE_CASE)
+    )
+
+    // Tanggal + jam event, ada di dalam teks notif BRI. Dipakai sebagai tanda tangan transaksi.
+    private val EVENT_TS_RE = Regex("""(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2})""")
+
     fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
 
-    /** Ekstraksi nominal saja (dipakai custom command offline). */
+    /** Ekstraksi nominal saja. */
     fun amountOf(text: String): Long? = extractAmount(text)
 
-    fun parse(pkg: String, text: String): Transaction? {
-        val bank = BANK_PKG[pkg] ?: return null
-        return parseByBank(bank, text)
-    }
+    fun extractSource(text: String): String? = pickLast4(SRC_RES, text)
 
-    fun parseByBank(bank: String, text: String): Transaction? {
-        val lower = text.lowercase()
+    fun extractDestination(text: String): String? = pickLast4(DST_RES, text)
 
-        val amount = extractAmount(text) ?: return null
-        if (amount <= 0) return null
-
-        val direction = detectDirection(bank, lower) ?: return null
-        val last4 = extractLast4(bank, text)
-        val name = extractName(bank, text)
-        val destination = extractDestination(bank, text)
-
-        return Transaction(bank, amount, direction, last4, name, destination)
-    }
-
-    private fun extractAmount(text: String): Long? {
-        val match = AMOUNT_RE.find(text)
-        if (match != null) {
-            var raw = match.groupValues[1]
-            raw = raw.replace(Regex("""[.,]\d{2}$"""), "")
-            val cleaned = raw.replace(".", "").replace(",", "")
-            return cleaned.toLongOrNull()
-        }
-        val match2 = AMOUNT_NO_RP_RE.find(text)
-        if (match2 != null) {
-            var raw = match2.groupValues[1]
-            raw = raw.replace(Regex("""[.,]\d{2}$"""), "")
-            val cleaned = raw.replace(".", "").replace(",", "")
-            return cleaned.toLongOrNull()
-        }
-        return null
-    }
-
-    private fun detectDirection(bank: String, lower: String): String? {
-        // 1. transfer antar rekening sendiri -> pindahin (prioritas tertinggi)
-        for (kw in PINDAH_KEYWORDS) {
-            if (kw in lower) return "pindahin"
-        }
-        if (PINDAH_RE.containsMatchIn(lower)) return "pindahin"
-        if (PINDAH_OWN_RE.containsMatchIn(lower)) return "pindahin"
-        // 2. top up e-wallet BRI -> uang keluar (debit) dari rekening
-        if (bank == "bri" && EWALLET_KEYWORDS.any { it in lower } && OUT_KEYWORDS.any { it in lower }) {
-            return "out"
-        }
-        // 3. keyword masuk
-        for (kw in IN_KEYWORDS) {
-            if (kw in lower) return "in"
-        }
-        // 4. keyword keluar
-        for (kw in OUT_KEYWORDS) {
-            if (kw in lower) return "out"
-        }
-        return null
-    }
-
-    private fun extractLast4(bank: String, text: String): String? {
-        // cari dulu nomor rekening lengkap (tampil penuh utk BRI notif masuk)
+    /** 4 digit terakhir rekening yang disebut, baik penuh maupun termask. */
+    fun extractLast4(text: String): String? {
         val reken = REKENING_RE.find(text)?.groupValues?.get(1)
         if (reken != null && reken.length >= 4) return reken.takeLast(4)
-
-        // rekening termask (XXXX...8533) utk transfer keluar/masuk via BRI
         val masked = Regex("""[Xx*].{0,3}(\d{4})\b""").find(text)?.groupValues?.get(1)
-        if (masked != null) return masked
-
-        return null
+        return masked
     }
 
-    /** Ambil 4 digit terakhir rekening tujuan dr transfer antar rekening sendiri. */
-    private fun extractDestination(bank: String, text: String): String? {
-        // notif BRI: "dengan nomor rekening tujuan XXXXX3508"
-        val m = Regex("""rekening\s+tujuan[:\s]*(\d{10,20}|[Xx*.\s]*\d{4}\b)""", RegexOption.IGNORE_CASE).find(text)
-            ?: return null
-        val raw = m.groupValues[1]
-        return if (raw.all { it.isDigit() }) raw.takeLast(4) else raw.filter { it.isDigit() }.takeLast(4)
-    }
-
-    private fun extractName(bank: String, text: String): String? {
+    fun extractName(bank: String, text: String): String? {
         if (bank == "bri") {
-            // "KET.BRIPEN... Sobat" -> nama pemilik di akhir baris
             BRI_NAME_RE.find(text)?.let {
                 val n = it.groupValues[1].trim()
                 if (n.length >= 3) return n
@@ -142,61 +86,62 @@ object Parser {
                 val n = it.groupValues[1].trim()
                 if (n.length >= 3) return n
             }
-            // transfer; "dari XXXXXXXXX5530" -> "dari" lalu nama tak selalu ada, cari "Sobat"
-            val m = Regex("""\bSobat\b""").find(text)
-            if (m != null) return "Sobat"
+            if (Regex("""\bSobat\b""").find(text) != null) return "Sobat"
         } else if (bank == "bca") {
-            // "from ***PET **AK ***GSA at"
-            val m = Regex("""\bfrom\s+(.+?)\s+at\b""", RegexOption.IGNORE_CASE).find(text)
-            if (m != null) {
-                return m.groupValues[1].trim()
+            Regex("""\bfrom\s+(.+?)\s+at\b""", RegexOption.IGNORE_CASE).find(text)?.let {
+                return it.groupValues[1].trim()
             }
         }
         return null
     }
 
-    private val PINDAH_KEYWORDS = listOf(
-        "pindah saldo", "pindah dana", "transfer antarrekening", "transfer antar rekening",
-        "ke rekening sendiri", "internal transfer", "own account"
-    )
+    /**
+     * Tanda tangan transaksi: bank + nominal + waktu event dari dalam teks notif.
+     * Dua notif untuk satu transfer BRI memakai waktu event yang sama, jadi
+     * hanya satu yang lolos -> mencegah catat ganda pindahin + tabout.
+     * Null kalau notif tidak memuat waktu event (myBCA), andalkan dedup notifikasi.
+     */
+    fun transactionSignature(bank: String, text: String, amount: Long): String? {
+        val m = EVENT_TS_RE.find(text) ?: return null
+        return "tx|$bank|$amount|${m.groupValues[1]} ${m.groupValues[2]}"
+    }
 
-    // pola BRI "Transfer dari XXXX..8533 dengan nomor rekening tujuan XXXX..3508"
-    private val PINDAH_RE = Regex(
-        """transfer\s+dari\s+[Xx*0-9]+\s+dengan\s+nomor\s+rekening\s+tujuan""",
-        RegexOption.IGNORE_CASE
-    )
-    // pola myBCA: transfer ke rekening sendiri / "own" / "antar rekening sendiri"
-    private val PINDAH_OWN_RE = Regex(
-        """(?:own account|ke rekening sendiri|antar rekening sendiri|pindah dana|pindah saldo|internal transfer)""",
-        RegexOption.IGNORE_CASE
-    )
+    /** Ubah teks notifikasi menjadi [Parsed]. Null kalau bukan transaksi (tidak ada nominal). */
+    fun parseByBank(bank: String, text: String): Parsed? {
+        val amount = extractAmount(text) ?: return null
+        if (amount <= 0) return null
+        return Parsed(
+            bank = bank,
+            amount = amount,
+            source = extractSource(text),
+            destination = extractDestination(text),
+            name = extractName(bank, text),
+            text = text
+        )
+    }
 
-    fun toCommand(tx: Transaction): String {
-        val id = when (tx.bank) {
-            "bri" -> when (tx.last4) {
-                "8533" -> "bri.ibu"
-                null -> "bri.ibu"   // notifikasi BRI tanpa rekening awal (mis. topup e-wallet) -> default rekening utama ibu
-                else -> "bri.vidha"
-            }
-            "bca" -> "bca"
-            else -> if (tx.last4 != null) "${tx.bank}.${tx.last4}" else tx.bank
+    private fun extractAmount(text: String): Long? {
+        AMOUNT_RE.find(text)?.let { m ->
+            val cleaned = m.groupValues[1]
+                .replace(Regex("""[.,]\d{2}$"""), "")
+                .replace(".", "").replace(",", "")
+            cleaned.toLongOrNull()?.let { return it }
         }
-        val cmd = when (tx.direction) {
-            "pindahin" -> "pindahin"
-            "in" -> "tabin"
-            else -> "tabout"
+        AMOUNT_NO_RP_RE.find(text)?.let { m ->
+            val cleaned = m.groupValues[1]
+                .replace(Regex("""[.,]\d{2}$"""), "")
+                .replace(".", "").replace(",", "")
+            cleaned.toLongOrNull()?.let { return it }
         }
-        return if (cmd == "pindahin") {
-            val tujuan = when (tx.bank) {
-                "bri" -> when (tx.destination) {
-                    "8533" -> "bri.ibu"
-                    else -> "bri.vidha"
-                }
-                else -> if (tx.destination != null) "${tx.bank}.${tx.destination}" else "tujuan.rek"
-            }
-            "/pindahin $id $tujuan ${tx.amount}"
-        } else {
-            "/$cmd $id ${tx.amount}"
+        return null
+    }
+
+    private fun pickLast4(res: List<Regex>, text: String): String? {
+        for (re in res) {
+            val m = re.find(text) ?: continue
+            val digits = m.groupValues.drop(1).joinToString("").filter { it.isDigit() }
+            if (digits.length >= 4) return digits.takeLast(4)
         }
+        return null
     }
 }

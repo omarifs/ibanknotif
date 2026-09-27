@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "accounts": {
+    "8533": "bri.ibu",
+    "3508": "bri.vidha"
+  },
+  "rules": [
+    {
+      "id": "bri-pindahin-antar-rekening-sendiri",
+      "name": "pindahin: antar rekening sendiri",
+      "bank": "bri",
+      "priority": 100,
+      "enabled": true,
+      "when": ["src_own", "dst_own", "src_ne_dst"],
+      "command": "/pindahin {src} {dst} {amount}"
+    },
+    {
+      "id": "bri-transfer-ke-diri-sendiri-diam",
+      "name": "diam: transfer ke rekening sendiri",
+      "bank": "bri",
+      "priority": 95,
+      "enabled": true,
+      "when": ["src_own", "dst_own", "src_eq_dst"],
+      "command": "",
+      "stop": true
+    },
+    {
+      "id": "bri-dana-keluar-dari-rekening-sendiri",
+      "name": "dana keluar dari rekening sendiri",
+      "bank": "bri",
+      "priority": 91,
+      "enabled": true,
+      "when": ["src_own", "dst_external"],
+      "command": "/tabout {id} {amount}"
+    },
+    {
+      "id": "bri-dana-masuk-ke-rekening-sendiri",
+      "name": "dana masuk ke rekening sendiri",
+      "bank": "bri",
+      "priority": 90,
+      "enabled": true,
+      "when": ["dst_own", "src_external"],
+      "command": "/tabin {id} {amount}"
+    },
+    {
+      "id": "bri-transfer-tanpa-tujuan-dibaca-diam",
+      "name": "diam: transfer dari rekening sendiri tanpa tujuan terbaca",
+      "bank": "bri",
+      "priority": 80,
+      "enabled": true,
+      "when": ["src_own", "has:transfer", "not:dst_known"],
+      "command": "",
+      "stop": true
+    },
+    {
+      "id": "bri-transfer-tanpa-asal-dibaca-diam",
+      "name": "diam: transfer masuk tanpa asal terbaca",
+      "bank": "bri",
+      "priority": 79,
+      "enabled": true,
+      "when": ["dst_own", "has:transfer", "not:src_known"],
+      "command": "",
+      "stop": true
+    },
+    {
+      "id": "bri-topup-ewallet",
+      "name": "top up e-wallet",
+      "bank": "bri",
+      "priority": 50,
+      "enabled": true,
+      "when": [
+        "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+        "has_any:top up|topup|top-up|isi saldo|debit|bayar|pembayaran"
+      ],
+      "command": "/tabout {id} {amount}",
+      "defaultId": "bri.ibu"
+    },
+    {
+      "id": "bri-dana-masuk",
+      "name": "dana masuk (dari kata)",
+      "bank": "bri",
+      "priority": 20,
+      "enabled": true,
+      "when": ["has_any:masuk|kredit|menerima|diterima|received|incoming|credit"],
+      "command": "/tabin {id} {amount}",
+      "defaultId": "bri.ibu"
+    },
+    {
+      "id": "bri-dana-keluar",
+      "name": "dana keluar (dari kata)",
+      "bank": "bri",
+      "priority": 10,
+      "enabled": true,
+      "when": [
+        "has_any:keluar|debit|transfer|bayar|beli|sent|transferred|potong|tagihan|pembayaran|withdrawal|tarik|pengiriman|dikirim|terkirim|outgoing|payment|purchase|spent|top up|topup|top-up|isi saldo"
+      ],
+      "command": "/tabout {id} {amount}",
+      "defaultId": "bri.ibu"
+    },
+    {
+      "id": "bca-pengeluaran",
+      "name": "myBCA pengeluaran",
+      "bank": "bca",
+      "priority": 21,
+      "enabled": true,
+      "when": ["has_any:you spent|spent|purchase|payment"],
+      "command": "/tabout bca {amount}"
+    },
+    {
+      "id": "bca-pemasukan",
+      "name": "myBCA pemasukan",
+      "bank": "bca",
+      "priority": 20,
+      "enabled": true,
+      "when": ["has_any:you received|received|credited|credit"],
+      "command": "/tabin bca {amount}"
+    },
+    {
+      "id": "mandiri-pengeluaran",
+      "name": "Livin pengeluaran",
+      "bank": "mandiri",
+      "priority": 21,
+      "enabled": true,
+      "when": ["has_any:debit|spent|terbayar|pembayaran|top up"],
+      "command": "/tabout mandiri {amount}"
+    },
+    {
+      "id": "mandiri-pemasukan",
+      "name": "Livin pemasukan",
+      "bank": "mandiri",
+      "priority": 20,
+      "enabled": true,
+      "when": ["has_any:kredit|received|masuk|diterima"],
+      "command": "/tabin mandiri {amount}"
+    }
+  ]
+}
