@@ -378,6 +378,93 @@ Tabel tidak punya kolom sumber, jadi baris `tabin` yang sebenarnya transfer
 dari vidha tidak bisa dibedakan dari pemasukan asli - hanya bisa dicocokkan
 manual ke mutasi bank.
 
+### M. Waktu Event Dinormalkan, Prompt AI Jadi Data (2026-09-28)
+
+Lanjutan 5L. Bagian 5L menutup salah akun lewat data. Yang tersisa adalah
+dua hal yang tidak bisa ditutup dengan data, dan satu yang bisa.
+
+**1. Satu peristiwa jadi beberapa baris -> waktu event dinormalkan.**
+
+`EVENT_TS_RE` hanya mengenali `dd/MM/yyyy HH:mm:ss`, sedangkan notif BRImo
+bentuk kaya menulis `28 September 2026, 07:36:51 WIB`. `transactionSignature`
+jadi null dan guard anti dobel dilewati. Akar masalahnya bukan cuma pola yang
+kurang: `transactionSignature` menempelkan teks yang ia temukan apa adanya,
+jadi dua notif satu peristiwa yang beda format tulisannya tetap menghasilkan
+tanda tangan berbeda. Perbaikannya **normalisasi**, bukan menambah pola:
+`Parser.eventTs` menerima dua bentuk dan membentuk satu string kanonik
+`yyyy-MM-dd HH:mm:ss`. Nama bulan dipetakan lewat tabel, tanpa `java.time`
+dan tanpa dependensi baru.
+
+Test `tanggal panjang BRImo tidak menghasilkan tanda tangan transaksi` yang
+ditambahkan di 5L harus dibalik, karena dia sedang mengunci bug ini. Sekarang
+ia mengunci bentuk kanoniknya.
+
+Batasnya, dan ini jujur: ini **mengurangi** duplikasi, tidak menghilkannya.
+Notif myBCA tidak punya waktu event sama sekali, dan dua notif satu peristiwa
+yang waktu eventnya berbeda tetap lolos. Untuk menutup sepenuhnya, `dedup_key`
+server-side (`Sink.dedupKey`) masih memuat `postTime`, jadi tiap notifikasi
+punya kunci sendiri. Itu perubahan yang lebih besar dan menyentuh
+`telegram.php`.
+
+**2. Prompt AI jadi data, dikirim dari server.**
+
+`buildPrompt` (tombol Pindai AI) punya kamus ber-hardcode yang menyebut
+`3508 = bri.vidha` dan menyuruh "Untuk BRI tanpa nomor rekening di notif, pakai
+`bri.ibu`". Persis tebakan yang dihapus di 5L. Damparannya lebih besar dari
+tebakan di rules: Pindai AI **menyimpan hasilnya jadi template belajar**
+(`Learning.addTemplates`) yang urutannya **di depan rules** (`NotifService`),
+jadi satu kali penekanan tombol bisa membuat aturan yang baru benar tidak
+pernah dibaca lagi.
+
+Hanya menyunting string di `Gemini.kt` tidak menyelesaikan itu, karena setiap
+perubahan prompt butuh build ulang. Sekarang prompt diambil dari
+`dn-arif:/home/websolusi/telegram/prompt.txt` setiap kali Pindai AI ditekan,
+dengan urutan: server, hasil tarikan terakhir (cache `ai_prompt_cache`), lalu
+`Gemini.PROMPT_BAKAN` di APK. Sumber yang dipakai masuk ke log
+(`PROMPT: dari server (# v2 - 2026-09-28)`) supaya versi mana yang aktif
+kelihatan. Tarikan tidak pernah dipanggil dari `NotifService`; hanya dari
+tombol, yang sudah jalan di thread terpisah.
+
+Pembagian yang membuat kelas bug ini mustahil terulang: **angka rekening
+disuntik dari `rules.json`**, kebijakan disimpan di `prompt.txt`. Jadi tidak
+ada lagi tempat yang bisa menulis `3508` sendiri. Peta rekening hanya perlu
+diubah di satu file, dan itu sudah ada tombolnya.
+
+`buildRulePrompt` (tombol Minta Usulan Aturan) ternyata **sudah** dinamis
+sejak 5J: kosakata, `KNOWN_IDS`, peta rekening, dan seluruh daftar aturan
+disuntik dari `RuleSet`. Yang perlu dibetulkan di sana cuma skema keluarannya
+yang masih menawarkan `"defaultId":"bri.ibu"` - field itu sudah tidak ada di
+`rules.json`, dan sama sekali tidak boleh dipakai: kasus yang tidak bisa
+dipastikan adalah `"stop": true`, bukan menebak akun.
+
+**3. Dua test merah yang sudah merah sebelumnya, sekarang hijau.**
+
+- `RuleSet.checkToken` mengecek `EXAMPLE_NUMBER` **sesudah** cek format, padahal
+  `HAS` menolak token berawalan angka lebih dulu. Cabang "memuat angka" adalah
+  kode mati. Urutan dibalik.
+- `RuleSet.SLOT` hanya menerima empat id yang dikenal, sehingga `/tabout
+  bni.baru {amount}` ditolak sebagai "command tidak cocok pola" sebelum cek slot
+  jalan, dan pesan "id akun tidak dikenal" tidak pernah tercapai. `SLOT`
+  dilebarkan ke `[\w.]{1,40}`; penolakan tetap terjadi di cek slot, hanya
+  pesannya yang benar.
+
+**Catatan migrasi tanda tangan.** Bentuk tanda tangan berubah dari
+`dd/MM/yyyy HH:mm:ss` menjadi `yyyy-MM-dd HH:mm:ss`. Key yang tersimpan dalam
+`processed_keys` jadi tidak berlaku untuk notifikasi lama. Dampaknya kecil:
+satu notifikasi lama masih aktif bisa diproses ulang sekali, dan `notifKey`
+yang memuat `postTime` tetap menahannya.
+
+**Verifikasi.** Tetap tanpa JDK di environment ini. `Parser`, `Rule`, dan
+`RuleEngine` diport ke Python lagi, sekarang dengan logika `eventTs`, dan
+seluruh fixture dijalankan ulang: 55 pemeriksaan, semua lulus, termasuk dua
+test `RuleValidatorTest` yang sebelumnya merah. Bentuk, bukan kebenaran
+kompilasi.
+
+**Yang masih tidak tertutup.** `dedup_key` server-side masih memuat
+`postTime`, jadi satu peristiwa masih bisa masuk lebih dari satu kali kalau
+notifikasi pasangannya membawa waktu event berbeda. Perbaikannya di sisi PHP,
+di luar lingkup perubahan ini.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 
