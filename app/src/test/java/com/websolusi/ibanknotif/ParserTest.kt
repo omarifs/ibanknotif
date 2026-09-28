@@ -1,6 +1,7 @@
 package com.websolusi.ibanknotif
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -14,22 +15,22 @@ import java.io.File
 class ParserTest {
 
     @Test
-    fun `pindahin dari 8533 ke 3508`() {
-        assertEquals("8533", Parser.extractSource(PINDAHIN_8533_3508))
-        assertEquals("3508", Parser.extractDestination(PINDAHIN_8533_3508))
+    fun `pindahin dari 8533 ke 5530`() {
+        assertEquals("8533", Parser.extractSource(PINDAHIN_8533_5530))
+        assertEquals("5530", Parser.extractDestination(PINDAHIN_8533_5530))
     }
 
     @Test
-    fun `pindahin dari 3508 ke 8533`() {
-        assertEquals("3508", Parser.extractSource(PINDAHIN_3508_8533))
-        assertEquals("8533", Parser.extractDestination(PINDAHIN_3508_8533))
+    fun `pindahin dari 5530 ke 8533`() {
+        assertEquals("5530", Parser.extractSource(PINDAHIN_5530_8533))
+        assertEquals("8533", Parser.extractDestination(PINDAHIN_5530_8533))
     }
 
     @Test
     fun `rekening ber-strip dan ber-spasi tetap terbaca`() {
-        val t = "05/09/2026 09:00:00 - Transfer dari XXXXX-XXXX-8533 dengan nomor rekening tujuan XXXXX-XXXX-3508 sebesar Rp250.000,00 BERHASIL."
+        val t = "05/09/2026 09:00:00 - Transfer dari XXXXX-XXXX-8533 dengan nomor rekening tujuan XXXXX-XXXX-5530 sebesar Rp250.000,00 BERHASIL."
         assertEquals("8533", Parser.extractSource(t))
-        assertEquals("3508", Parser.extractDestination(t))
+        assertEquals("5530", Parser.extractDestination(t))
     }
 
     @Test
@@ -61,12 +62,25 @@ class ParserTest {
     // --- tanda tangan transaksi: dasar anti catat ganda ---
 
     @Test
-    fun `dua notif satu transfer menghasilkan tanda tangan sama`() {
-        val detail = Parser.transactionSignature("bri", PINDAHIN_8533_3508, 100000)
-        val ringkas = Parser.transactionSignature("bri", SOBAT_100000, 100000)
+    fun `dua notif dengan waktu event sama menghasilkan tanda tangan sama`() {
+        // Pasangan notifikasi BRImo untuk satu transfer, keduanya menyebut waktu
+        // event yang sama, jadi yang kedua tertahan dan tidak jadi baris ganda.
+        val detail = Parser.transactionSignature("bri", PINDAHIN_8533_5530, 100000)
+        val ringkas = Parser.transactionSignature("bri", SOBAT_PASANGAN_100000, 100000)
         assertNotNull(detail)
         assertNotNull(ringkas)
         assertEquals(detail, ringkas)
+    }
+
+    @Test
+    fun `waktu event berbeda menghasilkan tanda tangan berbeda`() {
+        // Dua notif nyata satu rekening bisa membawa waktu event yang berbeda,
+        // jadi guard anti dobel tidak menahan yang kedua. Inilah alasan satu
+        // top up ShopeePay bisa masuk beberapa kali sebagai beberapa baris.
+        assertNotEquals(
+            Parser.transactionSignature("bri", PINDAHIN_8533_5530, 100000),
+            Parser.transactionSignature("bri", SOBAT_100000, 100000)
+        )
     }
 
     @Test
@@ -75,17 +89,65 @@ class ParserTest {
     }
 
     @Test
+    fun `tanggal panjang BRImo tidak menghasilkan tanda tangan transaksi`() {
+        // Menyebab satu peristiwa bisa lolos beberapa kali -> beberapa baris ganda.
+        assertNull(Parser.transactionSignature("bri", TOPUP_SHOPEEPAY_RIWAYAT, 200000))
+    }
+
+    @Test
+    fun `rekening BRImo yang menampakkan tiga digit terakhir tidak terbaca`() {
+        // "0102 **** **** 530" tidak punya 4 digit, jadi peta rekening tidak mungkin cocok.
+        assertNull(Parser.extractSource(TOPUP_SHOPEEPAY_RIWAYAT))
+        assertNull(Parser.extractDestination(TOPUP_SHOPEEPAY_RIWAYAT))
+        assertNull(Parser.extractLast4(TOPUP_SHOPEEPAY_RIWAYAT))
+    }
+
+    @Test
     fun `nominal berbeda menghasilkan tanda tangan berbeda`() {
-        val a = Parser.transactionSignature("bri", PINDAHIN_8533_3508, 100000)
-        val b = Parser.transactionSignature("bri", PINDAHIN_8533_3508, 200000)
+        val a = Parser.transactionSignature("bri", PINDAHIN_8533_5530, 100000)
+        val b = Parser.transactionSignature("bri", PINDAHIN_8533_5530, 200000)
         assertTrue(a != b)
     }
 
     companion object {
-        const val PINDAHIN_8533_3508 = "03/09/2026 07:12:49 - Transfer dari XXXXXXXXXX8533 dengan nomor rekening tujuan XXXXXXXXXX3508 sebesar Rp100.000,00 BERHASIL. Info lebih lanjut hubungi Call Center BRI 1500017"
-        const val PINDAHIN_3508_8533 = "03/09/2026 07:12:49 - Transfer dari XXXXXXXXXX3508 dengan nomor rekening tujuan XXXXXXXXXX8533 sebesar Rp100.000,00 BERHASIL."
+        const val PINDAHIN_8533_5530 = "03/09/2026 07:12:49 - Transfer dari XXXXXXXXXX8533 dengan nomor rekening tujuan XXXXXXXXXX5530 sebesar Rp100.000,00 BERHASIL. Info lebih lanjut hubungi Call Center BRI 1500017"
+        const val PINDAHIN_5530_8533 = "03/09/2026 07:12:49 - Transfer dari XXXXXXXXXX5530 dengan nomor rekening tujuan XXXXXXXXXX8533 sebesar Rp100.000,00 BERHASIL."
         const val SOBAT_10000 = "Sobat BRI! Dana Rp10.000 masuk ke rekening 000000000008533 pada 31/08/2026 17:11:17 KET:NBMB MUFIDATUL UMMA TO NURHASANAH"
         const val SOBAT_100000 = "Sobat BRI! Dana Rp100.000 masuk ke rekening 000000000008533 pada 31/08/2026 17:11:17 KET:X"
+
+        /**
+         * Bentuk BRImo, dikarang supaya waktu eventnya sama dengan
+         * [PINDAHIN_8533_5530] supaya pasangan notifikasi satu transfer bisa
+         * diuji. Bukan transkrip tangkapan layar.
+         */
+        const val SOBAT_PASANGAN_100000 = "Sobat BRI! Dana Rp100.000 masuk ke rekening 000000000008533 pada 03/09/2026 07:12:49 KET:X"
+
+        /**
+         * Notifikasi BRImo bentuk kaya, transkrip dari tangkapan layar HP vidha.
+         * Dua cacat notifikasi ini yang tidak bisa diatasi oleh aturan:
+         * - rekening `0102 **** **** 530` hanya menampakkan TIGA digit terakhir,
+         *   sedangkan peta rekening memakai empat -> tidak ada akun yang bisa
+         *   ditentukan, jadi harus diam, bukan menebak.
+         * - tanggal ditulis panjang (`28 September 2026, 07:36:51 WIB`), bukan
+         *   `dd/MM/yyyy`, jadi `transactionSignature` null dan satu peristiwa
+         *   bisa lolos beberapa kali.
+         */
+        const val TOPUP_SHOPEEPAY_RIWAYAT =
+            "Bank BRI Top Up ShopeePay Berhasil Top Up ShopeePay Berhasil " +
+                "Halo, MUFIDATUL UMMAH " +
+                "Berikut ini adalah informasi transaksi yang telah Anda lakukan di Aplikasi BRImo. " +
+                "28 September 2026, 07:36:51 WIB " +
+                "Top Up ShopeePay Berhasil " +
+                "Total Transaksi Rp200.000 " +
+                "No. Ref 220751895204 " +
+                "MUFIDATUL UMMAH " +
+                "BANK BRI 0102 **** **** 530 " +
+                "ShopeePay MUFXXXXXX UMMXX 083124253640 " +
+                "Jenis Transaksi ShopeePay " +
+                "Catatan - " +
+                "Nominal Rp200.000 " +
+                "Biaya Admin Rp0 " +
+                "Total Transaksi Rp200.000"
     }
 }
 
@@ -109,18 +171,18 @@ class RuleEngineTest {
         Parser.parseByBank(bank, text)?.let { RuleEngine.evaluate(it, rules) }?.command
 
     @Test
-    fun `pindahin dari 8533 ke 3508`() {
-        assertEquals("/pindahin bri.ibu bri.vidha 100000", run("bri", ParserTest.PINDAHIN_8533_3508))
+    fun `pindahin dari 8533 ke 5530`() {
+        assertEquals("/pindahin bri.ibu bri.vidha 100000", run("bri", ParserTest.PINDAHIN_8533_5530))
     }
 
     @Test
-    fun `pindahin dari 3508 ke 8533`() {
-        assertEquals("/pindahin bri.vidha bri.ibu 100000", run("bri", ParserTest.PINDAHIN_3508_8533))
+    fun `pindahin dari 5530 ke 8533`() {
+        assertEquals("/pindahin bri.vidha bri.ibu 100000", run("bri", ParserTest.PINDAHIN_5530_8533))
     }
 
     @Test
     fun `pindahin dengan rekening ber-strip`() {
-        val t = "05/09/2026 09:00:00 - Transfer dari XXXXX-XXXX-8533 dengan nomor rekening tujuan XXXXX-XXXX-3508 sebesar Rp250.000,00 BERHASIL."
+        val t = "05/09/2026 09:00:00 - Transfer dari XXXXX-XXXX-8533 dengan nomor rekening tujuan XXXXX-XXXX-5530 sebesar Rp250.000,00 BERHASIL."
         assertEquals("/pindahin bri.ibu bri.vidha 250000", run("bri", t))
     }
 
@@ -132,13 +194,20 @@ class RuleEngineTest {
 
     @Test
     fun `transfer masuk dari rekening luar bukan pindahin`() {
-        val t = "31/08/2026 17:11:17 - Transfer dari XXXXXXXXXX5530 dengan nomor rekening tujuan XXXXXXXXXX8533 sebesar Rp10.000,00 BERHASIL."
+        val t = "31/08/2026 17:11:17 - Transfer dari XXXXXXXXXX9911 dengan nomor rekening tujuan XXXXXXXXXX8533 sebesar Rp10.000,00 BERHASIL."
         assertEquals("/tabin bri.ibu 10000", run("bri", t))
     }
 
     @Test
+    fun `transfer dari rekening vidha ke ibu jadi pindahin bukan pemasukan`() {
+        // 5530 dulu dianggap rekening luar, jadi uang yang keluar dari vidha
+        // tercatat sebagai pemasukan ibu tanpa mengurangi saldo vidha.
+        assertEquals("/pindahin bri.vidha bri.ibu 100000", run("bri", ParserTest.PINDAHIN_5530_8533))
+    }
+
+    @Test
     fun `transfer keluar ke rekening luar bukan pindahin`() {
-        val t = "31/08/2026 17:11:17 - Transfer dari XXXXXXXXXX3508 dengan nomor rekening tujuan XXXXXXXXXX9911 sebesar Rp75.000,00 BERHASIL."
+        val t = "31/08/2026 17:11:17 - Transfer dari XXXXXXXXXX5530 dengan nomor rekening tujuan XXXXXXXXXX9911 sebesar Rp75.000,00 BERHASIL."
         assertEquals("/tabout bri.vidha 75000", run("bri", t))
     }
 
@@ -154,9 +223,17 @@ class RuleEngineTest {
     }
 
     @Test
-    fun `top up shopeepay`() {
+    fun `top up shopeepay tanpa rekening tidak dicatat`() {
+        // Tidak ada nomor rekening di notif, jadi tidak ada yang bisa menentukan
+        // akun mana. Dulu rule ini memakai defaultId "bri.ibu", jadi uang yang
+        // keluar dari HP vidha tercatat sebagai pengeluaran ibu.
         val t = "02/09/2026 12:10:19 - Transaksi Top Up ShopeePay 083124253640 sebesar Rp200.000,00 BERHASIL. Info lebih lanjut hubungi Call Center BRI 1500017"
-        assertEquals("/tabout bri.ibu 200000", run("bri", t))
+        assertNull(run("bri", t))
+    }
+
+    @Test
+    fun `notif riwayat BRImo hanya menampakkan tiga digit terakhir tidak dicatat`() {
+        assertNull(run("bri", ParserTest.TOPUP_SHOPEEPAY_RIWAYAT))
     }
 
     @Test
@@ -192,9 +269,16 @@ class RuleEngineTest {
     }
 
     @Test
-    fun `notif pasangan transfer tetap boleh dicatat sebagai keluar`() {
-        val t = "03/09/2026 07:12:49 - Dana Rp100.000 keluar dari rekening 4737010273673508"
+    fun `notif pasangan transfer dari rekening sendiri tetap dicatat sebagai keluar`() {
+        val t = "03/09/2026 07:12:49 - Dana Rp100.000 keluar dari rekening 0102001234565530"
         assertEquals("/tabout bri.vidha 100000", run("bri", t))
+    }
+
+    @Test
+    fun `notif pasangan transfer dari rekening yang bukan milik kita diam`() {
+        // 3508 itu rekening Flip, bukan rekening keluarga.
+        val t = "03/09/2026 07:12:49 - Dana Rp100.000 keluar dari rekening 4737010273673508"
+        assertNull(run("bri", t))
     }
 
     @Test
@@ -267,7 +351,7 @@ class RuleValidatorTest {
         )
         val set = RuleSet(1, RuleSet.defaultAccounts(), listOf(baru))
         assertNull(RuleValidator.validate(baru, set))
-        val parsed = Parser.parseByBank("bri", ParserTest.PINDAHIN_8533_3508)!!
+        val parsed = Parser.parseByBank("bri", ParserTest.PINDAHIN_8533_5530)!!
         assertEquals("/pindahin bri.ibu bri.vidha 100000", RuleEngine.evaluate(parsed, set)?.command)
     }
 

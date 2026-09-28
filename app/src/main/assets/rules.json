@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "accounts": {
     "8533": "bri.ibu",
-    "3508": "bri.vidha"
+    "5530": "bri.vidha"
   },
   "rules": [
     {
@@ -63,6 +63,16 @@
       "stop": true
     },
     {
+      "id": "bri-diam-tanpa-rekening-terbaca",
+      "name": "diam: notif BRI tanpa rekening milik sendiri yang terbaca",
+      "bank": "bri",
+      "priority": 60,
+      "enabled": true,
+      "when": ["neither_account_known"],
+      "command": "",
+      "stop": true
+    },
+    {
       "id": "bri-topup-ewallet",
       "name": "top up e-wallet",
       "bank": "bri",
@@ -72,8 +82,7 @@
         "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
         "has_any:top up|topup|top-up|isi saldo|debit|bayar|pembayaran"
       ],
-      "command": "/tabout {id} {amount}",
-      "defaultId": "bri.ibu"
+      "command": "/tabout {id} {amount}"
     },
     {
       "id": "bri-dana-masuk",
@@ -82,8 +91,7 @@
       "priority": 20,
       "enabled": true,
       "when": ["has_any:masuk|kredit|menerima|diterima|received|incoming|credit"],
-      "command": "/tabin {id} {amount}",
-      "defaultId": "bri.ibu"
+      "command": "/tabin {id} {amount}"
     },
     {
       "id": "bri-dana-keluar",
@@ -94,8 +102,7 @@
       "when": [
         "has_any:keluar|debit|transfer|bayar|beli|sent|transferred|potong|tagihan|pembayaran|withdrawal|tarik|pengiriman|dikirim|terkirim|outgoing|payment|purchase|spent|top up|topup|top-up|isi saldo"
       ],
-      "command": "/tabout {id} {amount}",
-      "defaultId": "bri.ibu"
+      "command": "/tabout {id} {amount}"
     },
     {
       "id": "bca-pengeluaran",
