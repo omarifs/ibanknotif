@@ -1,6 +1,7 @@
 package com.websolusi.ibanknotif
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -416,7 +417,7 @@ class KnownIdsTest {
     }
 
     @Test
-    fun `rules.json tanpa knownIds aman dan hanya memuat bawaan`() {
+    fun `rules json tanpa knownIds aman dan hanya memuat bawaan`() {
         val set = RuleSet.fromJson("""{"version":2,"accounts":{"8533":"bri.ibu"},"rules":[]}""")!!
         assertEquals(RuleSet.KNOWN_IDS, set.knownIds)
     }
