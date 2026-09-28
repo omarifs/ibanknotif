@@ -80,8 +80,12 @@ data class RuleSet(
         val AMOUNT_CMP = Regex("""^amount_(gt|lt):\d{1,14}$""")
         val HAS = Regex("""^(has|not):[a-z][a-z .\-]{1,40}$""")
         val KEYWORD = Regex("""^has_(any|none):[a-z][a-z .\-]{0,30}(\|[a-z][a-z .\-]{0,30})*$""")
-        /** Satu slot akun: boleh id literal atau placeholder. */
-        private const val SLOT = """(\{(id|src|dst)\}|bri\.ibu|bri\.vidha|bca|mandiri)"""
+        /**
+         * Satu slot akun: boleh id literal apa saja atau placeholder. Id yang tidak
+         * dikenal ditolak di [RuleValidator] dengan pesan yang menyebut idnya, bukan
+         * ditolak diam-diam sebagai "command tidak cocok pola".
+         */
+        private const val SLOT = """(\{(id|src|dst)\}|[\w.]{1,40})"""
         val COMMAND_RE = Regex("""^/(tabin|tabout|pindahin) $SLOT( $SLOT)?( \{amount\})$""")
         val PLACEHOLDERS = setOf("id", "src", "dst", "amount")
         val WHITESPACE = Regex("""\s+""")
@@ -155,18 +159,20 @@ data class RuleSet(
             if (t.startsWith("not:") && t.removePrefix("not:") in NEGATABLE) return null
 
             if (t.startsWith("has:") || t.startsWith("not:")) {
-                if (!HAS.matches(t)) return "kondisi '$t' tidak valid. Bentuk: has:kata atau not:kata"
+                // Angka dicek lebih dulu. Kalau setelahnya, HAS yang menolak token
+                // berawalan angka dan pesan "memuat angka" tidak akan pernah muncul.
                 if (EXAMPLE_NUMBER.containsMatchIn(t.substringAfter(':'))) {
                     return "kondisi '$t' memuat angka. Buat dari kata atau rekening, bukan dari nominal contoh."
                 }
+                if (!HAS.matches(t)) return "kondisi '$t' tidak valid. Bentuk: has:kata atau not:kata"
                 return null
             }
 
             if (t.startsWith("has_any:") || t.startsWith("has_none:")) {
-                if (!KEYWORD.matches(t)) return "kondisi '$t' tidak valid. Bentuk: has_any:kata1|kata2"
                 if (EXAMPLE_NUMBER.containsMatchIn(t.substringAfter(':'))) {
                     return "kondisi '$t' memuat angka. Buat dari kata, bukan dari nominal contoh."
                 }
+                if (!KEYWORD.matches(t)) return "kondisi '$t' tidak valid. Bentuk: has_any:kata1|kata2"
                 return null
             }
 

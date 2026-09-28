@@ -89,9 +89,24 @@ class ParserTest {
     }
 
     @Test
-    fun `tanggal panjang BRImo tidak menghasilkan tanda tangan transaksi`() {
-        // Menyebab satu peristiwa bisa lolos beberapa kali -> beberapa baris ganda.
-        assertNull(Parser.transactionSignature("bri", TOPUP_SHOPEEPAY_RIWAYAT, 200000))
+    fun `tanggal panjang BRImo tetap menghasilkan tanda tangan transaksi`() {
+        // Dulu bentuk ini tidak dikenali EVENT_TS_RE, jadi tandanya null dan satu
+        // peristiwa bisa lolos beberapa kali -> beberapa baris ganda.
+        assertEquals(
+            "tx|bri|200000|2026-09-28 07:36:51",
+            Parser.transactionSignature("bri", TOPUP_SHOPEEPAY_RIWAYAT, 200000)
+        )
+    }
+
+    @Test
+    fun `dua format waktu event yang sama menghasilkan tanda tangan yang sama`() {
+        val a = Parser.transactionSignature(
+            "bri", "03/09/2026 07:12:49 - Transfer dari XXXXXXXXXX8533", 100000)
+        val b = Parser.transactionSignature(
+            "bri", "3 September 2026, 07:12:49 WIB - Transfer dari XXXXXXXXXX8533", 100000)
+        assertNotNull(a)
+        assertNotNull(b)
+        assertEquals(a, b)
     }
 
     @Test
@@ -124,13 +139,14 @@ class ParserTest {
 
         /**
          * Notifikasi BRImo bentuk kaya, transkrip dari tangkapan layar HP vidha.
-         * Dua cacat notifikasi ini yang tidak bisa diatasi oleh aturan:
-         * - rekening `0102 **** **** 530` hanya menampakkan TIGA digit terakhir,
-         *   sedangkan peta rekening memakai empat -> tidak ada akun yang bisa
-         *   ditentukan, jadi harus diam, bukan menebak.
-         * - tanggal ditulis panjang (`28 September 2026, 07:36:51 WIB`), bukan
-         *   `dd/MM/yyyy`, jadi `transactionSignature` null dan satu peristiwa
-         *   bisa lolos beberapa kali.
+         * Satu cacat notifikasi ini yang tidak bisa diatasi oleh aturan: rekening
+         * `0102 **** **** 530` hanya menampakkan TIGA digit terakhir, sedangkan
+         * peta rekening memakai empat. Jadi tidak ada akun yang bisa ditentukan,
+         * dan aturannya harus diam, bukan menebak.
+         *
+         * Waktu eventnya ditulis panjang (`28 September 2026, 07:36:51 WIB`);
+         * itu ditangani di [Parser.transactionSignature] dengan menormalkan ke
+         * satu bentuk kanonik.
          */
         const val TOPUP_SHOPEEPAY_RIWAYAT =
             "Bank BRI Top Up ShopeePay Berhasil Top Up ShopeePay Berhasil " +

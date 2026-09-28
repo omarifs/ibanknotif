@@ -56,8 +56,23 @@ object Parser {
         Regex("""(?:nomor\s+rekening\s+tujuan|ke\s+rekening)[:\s]*(\d{7,20})\b""", RegexOption.IGNORE_CASE)
     )
 
-    // Tanggal + jam event, ada di dalam teks notif BRI. Dipakai sebagai tanda tangan transaksi.
-    private val EVENT_TS_RE = Regex("""(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2})""")
+    // Waktu event BRI muncul dalam dua bentuk: "03/09/2026 07:12:49" pada notif
+    // ringkas, "28 September 2026, 07:36:51 WIB" pada notif riwayat. Keduanya
+    // dinormalkan ke satu bentuk, kalau tidak dua notif satu peristiwa punya
+    // tanda tangan berbeda dan keduanya lolos -> catat ganda.
+    private val EVENT_TS_RES = listOf(
+        Regex("""(\d{2})/(\d{2})/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})"""),
+        Regex("""(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})[,.]?\s+(\d{2}):(\d{2}):(\d{2})""")
+    )
+
+    private val BULAN = mapOf(
+        "jan" to 1, "januari" to 1, "feb" to 2, "februari" to 2,
+        "mar" to 3, "maret" to 3, "apr" to 4, "april" to 4,
+        "mei" to 5, "may" to 5, "jun" to 6, "juni" to 6,
+        "jul" to 7, "juli" to 7, "agu" to 8, "agustus" to 8, "aug" to 8,
+        "sep" to 9, "september" to 9, "okt" to 10, "oktober" to 10, "oct" to 10,
+        "nov" to 11, "november" to 11, "des" to 12, "desember" to 12, "dec" to 12
+    )
 
     fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
 
@@ -95,15 +110,34 @@ object Parser {
         return null
     }
 
+    /** Waktu event dalam bentuk kanonik `yyyy-MM-dd HH:mm:ss`. Null kalau tidak ada di teks. */
+    private fun eventTs(text: String): String? {
+        EVENT_TS_RES[0].find(text)?.let { m ->
+            return "%04d-%02d-%02d %02d:%02d:%02d".format(
+                m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt(),
+                m.groupValues[4].toInt(), m.groupValues[5].toInt(), m.groupValues[6].toInt()
+            )
+        }
+        EVENT_TS_RES[1].find(text)?.let { m ->
+            val bulan = BULAN[m.groupValues[2].lowercase()] ?: return null
+            return "%04d-%02d-%02d %02d:%02d:%02d".format(
+                m.groupValues[3].toInt(), bulan, m.groupValues[1].toInt(),
+                m.groupValues[4].toInt(), m.groupValues[5].toInt(), m.groupValues[6].toInt()
+            )
+        }
+        return null
+    }
+
     /**
      * Tanda tangan transaksi: bank + nominal + waktu event dari dalam teks notif.
-     * Dua notif untuk satu transfer BRI memakai waktu event yang sama, jadi
-     * hanya satu yang lolos -> mencegah catat ganda pindahin + tabout.
+     * Waktu event sudah dinormalkan ke `yyyy-MM-dd HH:mm:ss`, jadi dua notif satu
+     * peristiwa yang beda format tulisannya tetap menghasilkan tanda tangan sama
+     * dan hanya satu yang lolos.
      * Null kalau notif tidak memuat waktu event (myBCA), andalkan dedup notifikasi.
      */
     fun transactionSignature(bank: String, text: String, amount: Long): String? {
-        val m = EVENT_TS_RE.find(text) ?: return null
-        return "tx|$bank|$amount|${m.groupValues[1]} ${m.groupValues[2]}"
+        val ts = eventTs(text) ?: return null
+        return "tx|$bank|$amount|$ts"
     }
 
     /** Ubah teks notifikasi menjadi [Parsed]. Null kalau bukan transaksi (tidak ada nominal). */

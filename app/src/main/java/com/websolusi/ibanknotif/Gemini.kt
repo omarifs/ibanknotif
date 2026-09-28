@@ -33,6 +33,61 @@ object Gemini {
     private const val MODEL = "gemini-2.0-flash"
     private const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
 
+    private const val PROMPT_FILE = "prompt.txt"
+    private const val KEY_PROMPT_CACHE = "ai_prompt_cache"
+    private const val PROMPT_TIMEOUT_MS = 5000
+
+    /**
+     * Kamus + aturan untuk AI. Sumbernya, berurutan dari yang paling dipercaya:
+     * `prompt.txt` di server, hasil tarikan terakhir, lalu [PROMPT_BAKAN] di APK.
+     * Berubahnya prompt lalu tidak perlu build ulang, persis seperti
+     * `assets/rules.json`. Sumber yang dipakai masuk log supaya versi mana yang
+     * aktif kelihatan.
+     */
+    fun prompt(ctx: Context): String {
+        fetchPrompt(ctx)?.let { return it }
+        cachePrompt(ctx)?.let {
+            Config.appendLog(ctx, "PROMPT: server tidak bisa dibaca, pakai hasil tarikan terakhir")
+            return it
+        }
+        Config.appendLog(ctx, "PROMPT: pakai bawaan aplikasi")
+        return PROMPT_BAKAN
+    }
+
+    private fun promptUrl(ctx: Context): String {
+        val ep = Config.endpoint(ctx)
+        val i = ep.lastIndexOf('/')
+        return (if (i > 0) ep.substring(0, i + 1) else ep) + PROMPT_FILE
+    }
+
+    private fun prefs(ctx: Context) =
+        ctx.getSharedPreferences("ibanknotif", Context.MODE_PRIVATE)
+
+    private fun cachePrompt(ctx: Context): String? =
+        prefs(ctx).getString(KEY_PROMPT_CACHE, null)?.takeIf { it.isNotBlank() }
+
+    private fun fetchPrompt(ctx: Context): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = URL(promptUrl(ctx)).openConnection() as HttpURLConnection
+            conn.connectTimeout = PROMPT_TIMEOUT_MS
+            conn.readTimeout = PROMPT_TIMEOUT_MS
+            conn.setRequestProperty("Accept", "text/plain")
+            if (conn.responseCode !in 200..299) return null
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            if (body.isBlank()) return null
+            prefs(ctx).edit().putString(KEY_PROMPT_CACHE, body).apply()
+            val versi = body.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+            Config.appendLog(ctx, "PROMPT: dari server ($versi)")
+            body
+        } catch (_: Exception) {
+            // Jangan log pesan exception: HttpURLConnection bisa memuat URL lengkap.
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
     private val BANK_ALIAS = mapOf(
         "com.bca" to "bca", "com.bca.mybca" to "bca", "com.bca.mobile" to "bca", "com.bca.mbs" to "bca",
         "co.id.mandiri.livin" to "mandiri", "co.id.mandiri.touch" to "mandiri",
@@ -51,7 +106,8 @@ object Gemini {
         val res = ArrayList<AiResult?>(notifs.size)
         repeat(notifs.size) { res.add(null) }
 
-        val prompt = buildPrompt(notifs, customPrompt)
+        val kamus = prompt(ctx)
+        val prompt = buildPrompt(ctx, notifs, kamus, customPrompt)
         val raw = call(ctx, apiKey, prompt) ?: return res
         parseResults(ctx, raw, res)
         return res
@@ -95,23 +151,28 @@ object Gemini {
         }
     }
 
-    private fun buildPrompt(notifs: List<RawNotif>, customPrompt: String?): String {
-        val kamus = """
-            Rekening milik sendiri yang sah HANYA dua:
-            - 8533 = bri.ibu  -> id "bri.ibu"
-            - 3508 = bri.vidha -> id "bri.vidha"
-            Semua nomor rekening lain = pihak luar.
+    /**
+     * Salinan bawaan, hanya dipakai kalau `prompt.txt` di server tidak terbaca dan
+     * belum pernah ada hasil tarikan. Sengaja tidak memuat nomor rekening: peta
+     * rekening disuntik dari `rules.json` (lihat [buildPrompt]) supaya tidak
+     * mungkin menyimpang. Prompt pernah menulis `3508` sementara rules.json sudah
+     * `5530`, dan itu persis sumber klasifikasi yang salah.
+     */
+    private val PROMPT_BAKAN = """
+            Daftar rekening milik sendiri yang sah ditulis dari rules.json dan
+            muncul tepat setelah blok ini. Yang tertulis di situ yang benar.
 
             Menentukan arah WAJIB dari rekening asal ("dari ...") dan tujuan
             ("nomor rekening tujuan ..." / "ke rekening ..."), BUKAN dari kata
             "pindah dana", "pindah saldo", "ke rekening sendiri", atau "dana".
 
-            - ASAL dan TUJUAN keduanya 8533/3508, dan berbeda -> /pindahin <id_asal> <id_tujuan> <amount>
-            - ASAL 8533/3508, tujuan pihak luar -> /tabout <id_asal> <amount>
-            - TUJUAN 8533/3508, asal pihak luar -> /tabin <id_tujuan> <amount>
-            - Tidak ada nomor rekening sama sekali -> pakai kata:
-                masuk / kredit / diterima / dana masuk / received / credited -> /tabin
-                keluar / debit / bayar / transfer / top up / pembelian / pembayaran -> /tabout
+            - ASAL dan TUJUAN keduanya milik sendiri, dan berbeda -> /pindahin <id_asal> <id_tujuan> <amount>
+            - ASAL milik sendiri, tujuan pihak luar -> /tabout <id_asal> <amount>
+            - TUJUAN milik sendiri, asal pihak luar -> /tabin <id_tujuan> <amount>
+            - Hanya satu sisi yang terbaca -> JANGAN jadi tabin/tabout, kembalikan command null.
+            - Tidak ada nomor rekening sama sekali -> JANGAN menebak akun mana pun,
+              kembalikan command null. Mencatat ke akun yang salah lebih buruk
+              daripada tidak mencatat, karena uangnya tidak bisa dikembalikan sendiri.
             - myBCA: "You spent IDR x" -> /tabout bca x ; "You received IDR x" -> /tabin bca x
 
             Dilarang memakai kata "Account Transfer" milik myBCA sebagai bukti transfer
@@ -120,20 +181,20 @@ object Gemini {
             <amount> = angka bulat rupiah TANPA titik/koma (contoh: 200000).
 
             JANGAN PERNAH menulis id tanpa nama rekening, misalnya "/tabout bri 200000".
-            Itu akan membuat akun baru. Untuk BRI tanpa nomor rekening di notif, pakai "bri.ibu".
+            Itu akan membuat akun baru.
 
-            KAPAN BUKAN TRANSAKSI (output null) HANYA jika: tidak ada nominal rupiah sama sekali,
-            atau teks jelas promo/iklan/info/OIN/maintenance/saldo tampilan. Promo produk seperti
+            KAPAN command = null: tidak ada nominal rupiah sama sekali, teks jelas
+            promo/iklan/info/maintenance/saldo tampilan, ATAU nomor rekening tidak
+            bisa ditentukan sehingga akun tidak bisa dipastikan. Promo produk seperti
             "SR025" dan pengumuman maintenance bank bukan transaksi.
 
-            Contoh benar:
-            1. "Top Up ShopeePay 083124253640 sebesar Rp200.000,00" -> /tabout bri.ibu 200000
-            2. "Transfer dari XXXXXXXXXX8533 dengan nomor rekening tujuan XXXXXXXXXX3508 sebesar Rp100.000,00" -> /pindahin bri.ibu bri.vidha 100000
-            3. "Transfer dari XXXXXXXXXX3508 dengan nomor rekening tujuan XXXXXXXXXX8533 sebesar Rp100.000,00" -> /pindahin bri.vidha bri.ibu 100000
-            4. "Transfer dari XXXXXXXXXX5530 dengan nomor rekening tujuan XXXXXXXXXX8533 sebesar Rp10.000,00" -> /tabin bri.ibu 10000
-               (5530 bukan rekening sendiri, jadi ini uang masuk, bukan pindahin)
-            5. "Sobat BRI! Dana Rp10.000 masuk ke rekening 000000000008533" -> /tabin bri.ibu 10000
-            6. myBCA "Kredit Rp1.500.000 dari ..." -> /tabin bca 1500000
+            Contoh bentuk:
+            1. Transfer dari rekening saya ke rekening saya yang lain -> /pindahin bri.ibu bri.vidha 100000
+            2. Transfer dari rekening pihak luar ke rekening saya -> /tabin bri.ibu 10000
+            3. Transfer dari rekening saya ke pihak luar -> /tabout bri.vidha 75000
+            4. Dana masuk ke rekening saya -> /tabin bri.ibu 10000
+            5. Top up e-wallet tanpa nomor rekening -> command null
+            6. myBCA "You spent IDR x" -> /tabout bca x
             7. Livin "Debit Rp52.000 untuk QRIS ..." -> /tabout mandiri 52000
 
             pattern = <regex kotlin IGNORE_CASE yg mencocokkan bagian inti teks notif ini>.
@@ -142,8 +203,25 @@ object Gemini {
             Hindari lookbehind/references complex; regex sederhana.
         """.trimIndent()
 
+    private fun buildPrompt(
+        ctx: Context,
+        notifs: List<RawNotif>,
+        kamus: String,
+        customPrompt: String?
+    ): String {
         val sb = StringBuilder()
-        sb.append("Kamu ekstraktor transaksi bank. Kamus & aturan:\n").append(kamus).append("\n\n")
+        sb.append("Kamu ekstraktor transaksi bank. Kamus & aturan:\n").append(kamus.trim()).append("\n\n")
+
+        // Peta rekening disuntik dari rules.json, bukan ditulis di prompt. Itu satu
+        // sumber kebenaran: prompt pernah menyebut 3508 sementara rules.json sudah
+        // 5530, dan angka yang salah itu ikut dipakai untuk klasifikasi.
+        val set = RuleStore.load(ctx)
+        sb.append("Rekening milik sendiri yang sah (dari rules.json versi ")
+            .append(set.version).append("):\n")
+        for ((last4, id) in set.accounts) {
+            sb.append("- ").append(last4).append(" = ").append(id).append("\n")
+        }
+        sb.append("Semua nomor rekening lain = pihak luar.\n\n")
         if (!customPrompt.isNullOrBlank()) {
             sb.append("INSTRUKSI TAMBAHAN DARI PENGGUNA (prioritas tertinggi, menimpa aturan di atas bila bertentangan):\n")
             sb.append(customPrompt.trim()).append("\n\n")
@@ -245,7 +323,9 @@ object Gemini {
         sb.append("4. {src} dan {dst} memakai pemetaan rekening: ")
             .append(current.accounts.entries.joinToString(", ") { "${it.key} = ${it.value}" }).append("\n")
         sb.append("5. Kalau memang tidak boleh ada yang dicatat, pakai \"stop\": true dan \"command\": \"\".\n")
-        sb.append("6. 'priority' harus unik per bank. Pindahkan nomor, jangan berbagi dengan aturan lain.\n\n")
+        sb.append("6. 'priority' harus unik per bank. Pindahkan nomor, jangan berbagi dengan aturan lain.\n")
+        sb.append("7. JANGAN memakai \"defaultId\". Kalau satu sisi saja yang terbaca atau rekening\n")
+        sb.append("   tidak terbaca, aturan yang benar adalah \"stop\": true, bukan menebak akun.\n\n")
         sb.append("ATURAN YANG SUDAH ADA:\n")
         for (r in current.rules.sortedByDescending { it.priority }) {
             sb.append("  p").append(r.priority).append(" [").append(r.bank).append("] ")
@@ -264,8 +344,8 @@ object Gemini {
                 .append("\ntext=").append(n.text).append("\nbig=").append(n.bigText ?: "").append("\n\n")
         }
         sb.append("Balas: [{\"id\":\"...\",\"name\":\"...\",\"bank\":\"bri|bca|mandiri|*\",")
-            .append("\"priority\":<int>,\"enabled\":true,\"when\":[...],\"command\":\"...\",")
-            .append("\"stop\":false,\"defaultId\":\"bri.ibu\"}]\n")
+            .append("\"priority\":<int>,\"enabled\":true,\"when\":[...],")
+            .append("\"command\":\"/tabin <id> {amount}\",\"stop\":false}]\n")
         return sb.toString()
     }
 
