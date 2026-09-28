@@ -68,6 +68,21 @@ object PatternStore {
         }
     }
 
+    /**
+     * Nama bulan ke nomor, untuk bentuk tanggal panjang BRImo. Harus
+     * dideklarasikan SEBELUM [BAWAAN]: dalam `object`, properti diinisialisasi
+     * sesuai urutan deklarasi, jadi [BAWAAN] yang memakainya harus melihatnya
+     * sudah terisi.
+     */
+    private val BULAN = mapOf(
+        "jan" to 1, "januari" to 1, "feb" to 2, "februari" to 2,
+        "mar" to 3, "maret" to 3, "apr" to 4, "april" to 4,
+        "mei" to 5, "may" to 5, "jun" to 6, "juni" to 6,
+        "jul" to 7, "juli" to 7, "agu" to 8, "agustus" to 8, "aug" to 8,
+        "sep" to 9, "september" to 9, "okt" to 10, "oktober" to 10, "oct" to 10,
+        "nov" to 11, "november" to 11, "des" to 12, "desember" to 12, "dec" to 12
+    )
+
     /** Pola bawaan di dalam APK. Selalu ada, selalu bisa dipulihkan. */
     val BAWAAN: Patterns = Patterns(
         version = 0,
@@ -113,14 +128,7 @@ object PatternStore {
         )
     )
 
-    private val BULAN = mapOf(
-        "jan" to 1, "januari" to 1, "feb" to 2, "februari" to 2,
-        "mar" to 3, "maret" to 3, "apr" to 4, "april" to 4,
-        "mei" to 5, "may" to 5, "jun" to 6, "juni" to 6,
-        "jul" to 7, "juli" to 7, "agu" to 8, "agustus" to 8, "aug" to 8,
-        "sep" to 9, "september" to 9, "okt" to 10, "oktober" to 10, "oct" to 10,
-        "nov" to 11, "november" to 11, "des" to 12, "desember" to 12, "dec" to 12
-    )
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
     /** Pola yang sudah dipakai. Dibaca di jalur notifikasi, tidak ada jaringan. */
     @Volatile
@@ -134,8 +142,6 @@ object PatternStore {
      * di `Config` dan `Gemini` dihapus supaya tidak ada peta yang berbeda-beda.
      */
     fun bankLabel(pkg: String): String? = holder.bankPkg[pkg]
-
-    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
     // ---- validasi ----
 
@@ -156,7 +162,9 @@ object PatternStore {
         if (p.length > MAX_PATTERN) return null
         if (BERATANGKA.containsMatchIn(p)) return null
         return try {
-            Regex(p, if (ignoreCase) RegexOption.IGNORE_CASE else RegexOption.NONE)
+            // RegexOption hanya punya IGNORE_CASE dan MULTILINE - tidak ada
+            // "NONE". Regex tanpa opsi memang sudah membedakan huruf besar-kecil.
+            if (ignoreCase) Regex(p, RegexOption.IGNORE_CASE) else Regex(p)
         } catch (e: Exception) {
             null
         }
