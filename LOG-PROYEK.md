@@ -296,7 +296,90 @@ terhadap dua kelas kesalahan di atas, karena kurungnya sendiri tetap
 seimbang. Setelah build hijau, 37 test JUnit di `app/src/test/` baru
 pertama kali benar-benar dieksekusi.
 
+### L. `defaultId` Menebak Akun, Rekening `3508` Salah (2026-09-28)
+
+**Gejala.** Empat baris `bri ibu` −200.000 pada 2026-09-28 (id 502-505),
+padahal uangnya keluar dari rekening HP vidha. Tidak ada satu pun baris untuk
+vidha hari itu.
+
+**Penyebab, dua lapis.**
+
+1. Notifikasi BRImo bentuk kaya tidak pernah menyebut nomor rekening dengan
+   4 digit terakhir. Yang muncul `0102 **** **** 530` - hanya **tiga** digit.
+   `Parser.extractLast4` butuh empat (`[Xx*].{0,3}(\d{4})\b`), jadi
+   `source` dan `destination` kosong. Waktu itu `render()` jatuh ke
+   `defaultId`, dan ketiga aturan kata kunci memakai `defaultId: "bri.ibu"`.
+   Jadi tebakan itu benar di HP ibu dan pasti salah di HP vidha. Perbaikiannya
+   bukan mengganti tebakannya, tapi **menghapus** `defaultId` dan menambah
+   aturan `diam` priority 60 (`neither_account_known`) supaya "tidak tahu"
+   menjadi keputusan, bukan kebetulan tidak cocok.
+2. `accounts` menulis `3508 = bri.vidha`, padahal rekening vidha berakhiran
+   `5530` dan `3508` adalah rekening Flip. Akibatnya transfer dari
+   `5530 -> 8533` terbaca "transfer masuk dari pihak luar" dan dicatat
+   `/tabin bri.ibu` - uang vidha dihitung sebagai pemasukan ibu tanpa
+   mengurangi saldo vidha sama sekali.
+
+**Yang dipoles.** `defaultId` dihapus dari `bri-topup-ewallet`,
+`bri-dana-masuk`, `bri-dana-keluar`. `accounts` jadi `{8533, 5530}`. Aturan
+`diam` baru priority 60 - di atas aturan kata kunci, di bawah semua aturan
+struktural; syaratnya saling lepas sehingga tidak pernah membayangi
+`pindahin`. `version` 1 -> 2 (tanpa ini `fetchFromServer` berhenti di
+`RuleStore.kt:132` dan tidak melakukan apa pun). `Rule.defaultAccounts()`
+disamakan supaya `RuleValidatorTest` tidak gagal.
+
+**Tiga test sudah merah sebelum perubahan ini.** Bukan efek refactor, dan
+baru ketahuan sekarang kalau test suite-nya belum pernah hijau:
+
+- `dua notif satu transfer menghasilkan tanda tangan sama` memakai dua fixture
+  dengan waktu event **berbeda** (`03/09/2026 07:12:49` vs
+  `31/08/2026 17:11:17`), jadi `assertEquals` tidak mungkin lulus. Diganti dua
+  test: pasangan dengan waktu event sama (dibentuk, bukan transkrip), dan satu
+  test yang mengunci keterbatasan sebenarnya - tanda tangan hanya menahan
+  kalau **kedua** notif satu peristiwa membawa waktu event yang sama.
+- `kondisi yang terikat nominal contoh ditolak` dan `id akun yang tidak
+  dikenal ditolak` menguji **teks pesan**, bukan penolakan. Keduanya tetap
+  ditolak dengan benar, tapi pesannya berbeda: `has:300000` lebih dulu gagal
+  cocok `HAS` (`^(has|not):[a-z]…` tidak bisa diawali angka) sehingga cabang
+  "memuat angka" di `checkToken` adalah **kode mati**; dan `/tabout bni.baru
+  {amount}` lebih dulu gagal cocok `COMMAND_RE` karena cek slot jalan
+  sesudahnya, sehingga pesan "tidak dikenal" juga tidak pernah tercapai.
+  Dua test ini dibiarkan merah - perbaikannya mengubah urutan cek di
+  `RuleValidator`, di luar lingkup perbaikan ini.
+
+**Verifikasi.** Tidak ada JDK maupun Android SDK di environment ini, jadi
+`./gradlew` tidak bisa dijalankan. Yang dilakukan: `Parser.kt`, `Rule.kt`, dan
+`RuleEngine.kt` diport ke Python lalu seluruh fixture `ParserTest.kt` dan
+`RuleValidatorTest` dijalankan ulang (56 pemeriksaan, semua lulus), plus
+`validateAll` atas `assets/rules.json`. Bentuk, bukan kebenaran kompilasi -
+`./gradlew testDebugUnitTest` tetap harus jalan di mesin yang punya SDK, dan
+ dua test merah di atas akan muncul.
+
+**Belum tertutup, perlu build.** Prompt AI masih menyebut `3508 = bri.vidha`
+dan masih menyuruh `pakai "bri.ibu"` untuk notif tanpa rekening
+(`Gemini.kt:102,123`), dan contoh `Gemini.kt:131-134` masih menyatakan
+`5530` bukan rekening sendiri - sekarang terbukti salah. Sampai ada build,
+tombol **Pindai AI** tidak boleh dipakai. Tombol **Bawaan** juga mengembalikan
+`rules.json` versi lama yang tertanam di APK, jadi tidak boleh dipakai
+setelah sinkron.
+
+**Belum tertutup dan tidak bisa dari data.** Satu peristiwa top up menjadi
+beberapa baris. `EVENT_TS_RE` (`Parser.kt:60`) hanya pola
+`dd/MM/yyyy HH:mm:ss`, sedangkan notif BRImo menulis
+`28 September 2026, 07:36:51 WIB`, jadi `transactionSignature` null dan
+guard anti dobel dilewati. `notifKey` memuat `postTime` sehingga tiap notif
+tetap punya kunci sendiri. Perbaikannya satu baris regex di `Parser.kt`.
+
+**Temuan lain dari audit read-only `tele_tabungan`.** Kolom `nama` pecah jadi
+empat nilai untuk dua rekening: `bri vidha`(69) + `brividha`(42),
+`bri ibu`(110) + `briibu`(27). Jadi saldo per rekening dihitung terpisah dan
+salah. Ada juga akun sampah `tujuan rek`(1, sisa fallback lama) dan
+`normalisasi`(4). `bcaarif`(3) rekening nyata tapi tidak ada di `KNOWN_IDS`.
+Tabel tidak punya kolom sumber, jadi baris `tabin` yang sebenarnya transfer
+dari vidha tidak bisa dibedakan dari pemasukan asli - hanya bisa dicocokkan
+manual ke mutasi bank.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
+
 
 - `/tabin <id> <nominal> [YYYY-MM-DD]` Transaksi masuk
 - `/tabout <id> <nominal> [YYYY-MM-DD]` Transaksi keluar
