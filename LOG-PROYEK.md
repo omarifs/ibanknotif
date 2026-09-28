@@ -549,6 +549,68 @@ memakai empat. Pola regex tidak bisa menutup itu - regex tidak bisa membawa
 artinya "ini rekening vidha". Notif itu akan tetap diam. Itu kehilangan
 pencatatan, bukan penulisan yang salah, dan memang lebih baik begitu.
 
+### O. Pembulatan `/pindahin` Hanya Antar Bank + Peta Arsitektur Dinamis (2026-09-28)
+
+**Gejala.** Empat `pinout` BRI tidak bulat jadi yatim tanpa `pinin` pasangan
+sama sekali: `#33` (1.567.150), `#130` (152.750), `#256` (2.623.400),
+`#317` (282.750). Sisa pembagilah ke ribuan: 150, 750, 400, 750.
+
+**Akar.** `telegram.php` menghitung nominal masuk `/pindahin` dengan
+`$pindah_in = (int)(floor($pindah_out/1000)*1000)` **tanpa syarat**. Itu benar
+untuk satu kasus: transfer lewat Flip, yang nominal keluarnya termasuk fee admin
+(selisih 325-502, persis pola fee yang terlihat di 17 data `bca pinout`).
+Tapi diterapkan juga ke transfer antar rekening **di bank yang sama**, yang
+tidak mungkin punya fee. Akibatnya nominal internal yang tidak bulat kehilangan
+sisanya, dan kelima `pinout` yatim tercipta.
+
+**Koreksi diri.** Sebelumnya dinyatakan "Rp 750 hilang tanpa jejak". Itu tidak
+tepat: pembulatan itu memang disengaja untuk Flip, dan fee-nya tercatat sebagai
+selisih antar sisi. Yang rusak hanya kasus bank sama - yang nominalnya wajib
+sama persis.
+
+**Perbaikan** (`telegram.php`, repo `omarifs/telegram`):
+
+```php
+$beda_bank = substr($ex[1],0,3) !== substr($ex[2],0,3);
+$pindah_in = $beda_bank ? (int)(floor($pindah_out/1000)*1000) : $pindah_out;
+```
+
+Tiga karakter pertama cukup: `bri.ibu` dan `bri.vidha` sama-sama `bri`,
+sedangkan `bca` dan `mandiri` berbeda. Nama akun dikirim sebagai id.
+
+Diverifikasi dengan simulasi 10 kasus terpisah (tanpa menyentuh DB): semua
+lulus, termasuk kasus yang tadinya rusak (`bri.ibu -> bri.vidha 1234567`
+sekarang menghasilkan `pinin` 1.234.567 utuh). `php -l` bersih, md5
+`b814a20f`, backup `telegram.php.bak-20260928`, deploy ke
+`dn-arif:/home/websolusi/telegram/telegram.php`, commit `22d38fc0` di repo
+`omarifs/telegram`.
+
+**Batas.** Logika ini membulatkan ke ribuan terdekat, bukan mengurangi fee
+sebenarnya. Selama fee di bawah Rp 1.000 - riwayat 325-502 - hasilnya benar.
+Fee lebih besar perlu cara lain. Empat `pinout` yatim dibiarkan (keputusan
+user): perlu dicek mutasi bank untuk 02 Feb, 04 Apr, 06 Jun, 09 Jul sebelum
+memutuskan.
+
+**Arsitektur dinamis - peta lengkap.** Tiga file konfigurasi di server + satu
+kode webhook. Yang sampai ke HP tanpa install ulang tergantung APK-nya:
+
+| File server | APK lama (vidha, membeku) | APK baru (arif, 1.0.2) | Cara ditarik |
+| :--- | :--- | :--- | :--- |
+| `rules.json` | ya | ya | tombol Aturan -> Tarik |
+| `patterns.json` | tidak | ya | otomatis saat app dibuka |
+| `prompt.txt` | tidak | ya | tombol Pindai AI |
+| `telegram.php` | ya | ya | bukan config - ini kode webhook, repo terpisah |
+
+Prinsipnya: yang jadi data adalah string, map, daftar, dan pola. Algoritma
+tetap di kode - `pickLast4`, kanonisasi waktu, kunci tanda tangan, gerbang
+`isSendable`. `knownIds` sebagai data dengan aturan server boleh menambah tapi
+tidak bisa menghapus bawaan.
+
+**Syarat ketat yang dijaga:** setiap file server harus tetap valid untuk APK
+yang paling lama. `knownIds` boleh memuat id baru tetapi aturan tidak boleh
+memakainya (validator APK lama menolak seluruh file). Setiap perubahan isi
+wajib menaikkan `version`, kalau tidak HP diam saja.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 
