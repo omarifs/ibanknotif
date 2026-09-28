@@ -1,6 +1,7 @@
 package com.websolusi.ibanknotif
 
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -43,6 +44,11 @@ class MainActivity : AppCompatActivity() {
 
         loadConfig()
         if (isNotifServiceEnabled() && !NotifService.ready()) requestListenerBind()
+
+        // Tarik konfigurasi dari server saat aplikasi dibuka. Di thread terpisah
+        // supaya tidak menahan tampilan, dan diam-diam: kalau gagal, yang dipakai
+        // tetap cache lalu bawaan APK.
+        Thread { syncSemua(this, diam = true) }.start()
 
         findViewById<MaterialButton>(R.id.btnNotifAccess).setOnClickListener {
             if (!isNotifServiceEnabled()) {
@@ -132,7 +138,7 @@ class MainActivity : AppCompatActivity() {
                         val gres = Gemini.extract(this, key, aiNotifs, customPrompt)
                         gres.forEachIndexed { k, r ->
                             val i = aiIdx[k]
-                            if (r != null && RuleEngine.isSendable(r.command)) res[i] = r
+                            if (r != null && RuleEngine.isSendable(r.command, rules.knownIds)) res[i] = r
                         }
                     }
                     val valid = res.filterNotNull().filter { it.command.isNotBlank() }
@@ -332,18 +338,33 @@ class MainActivity : AppCompatActivity() {
         view.findViewById<MaterialButton>(R.id.btnRulesSync).setOnClickListener {
             it.isEnabled = false
             Thread {
-                val msg = RuleStore.fetchFromServer(this)
+                val msg = syncSemua(this)
                 runOnUiThread {
                     it.isEnabled = true
-                    Toast.makeText(this, msg ?: "Tidak ada perubahan dari server", Toast.LENGTH_LONG).show()
-                    if (msg != null && msg.startsWith("Aturan diperbarui")) {
-                        etJson.setText(RuleSet.toJson(RuleStore.load(this)))
-                        refreshInfo()
-                        dryRun()
-                    }
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                    etJson.setText(RuleSet.toJson(RuleStore.load(this)))
+                    refreshInfo()
+                    dryRun()
                 }
             }
         }
+    }
+
+    /**
+     * Tarik tiga file konfigurasi dari server: aturan, pola notifikasi, dan
+     * prompt AI. Ketiganya bisa diubah dari server tanpa build ulang.
+     *
+     * Tidak pernah dipanggil dari listener notifikasi - hanya dari UI atau
+     * saat aplikasi dibuka. Jalur notifikasi hanya membaca cache.
+     */
+    private fun syncSemua(ctx: Context, diam: Boolean = false): String {
+        val aturan = RuleStore.fetchFromServer(ctx) ?: "aturan: gagal"
+        val pola = PatternStore.terapkan(ctx, paksa = true)
+        val prompt = Gemini.prompt(ctx)
+        val jumlahPrompt = prompt.length
+        val baris = mutableListOf(aturan, pola, "prompt: $jumlahPrompt karakter")
+        if (!diam) Config.appendLog(ctx, "TARIK SEMUA: ${baris.joinToString(" | ")}")
+        return baris.joinToString("\n")
     }
 
     /** Notifikasi bank yang masih aktif di shade. */

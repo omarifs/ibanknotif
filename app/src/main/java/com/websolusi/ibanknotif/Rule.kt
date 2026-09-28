@@ -59,7 +59,14 @@ data class Rule(
 data class RuleSet(
     val version: Int,
     val accounts: Map<String, String>,
-    val rules: List<Rule>
+    val rules: List<Rule>,
+    /**
+     * Id akun yang boleh muncul di `command`. Berasal dari `knownIds` di
+     * `rules.json`, digabung dengan [KNOWN_IDS] bawaan. Server boleh menambah,
+     * tidak bisa menghapus bawaan. Kalau `rules.json` lama tidak punya field-nya,
+     * hasilnya cuma [KNOWN_IDS] - jadi file yang belum diperbarui tetap aman.
+     */
+    val knownIds: Set<String> = KNOWN_IDS
 ) {
     fun activeFor(bank: String): List<Rule> =
         rules.filter { it.enabled && (it.bank == "*" || it.bank == bank) }
@@ -68,6 +75,9 @@ data class RuleSet(
     companion object {
         /** Id akun yang boleh muncul di `command`. Mencegah AI membuat akun baru. */
         val KNOWN_IDS = setOf("bri.ibu", "bri.vidha", "bca", "mandiri")
+
+        /** Bentuk id akun yang sah, dipakai untuk menyaring daftar dari server. */
+        val ID_RE = Regex("""^[a-z0-9][a-z0-9._]{0,39}$""")
 
         /** Kosakata `when` tanpa argumen. */
         val PREDICATES = setOf(
@@ -183,6 +193,8 @@ data class RuleSet(
             val o = JSONObject(raw)
             val acc = LinkedHashMap<String, String>()
             o.optJSONObject("accounts")?.let { a -> a.keys().forEach { acc[it] = a.getString(it) } }
+            val ids = LinkedHashSet<String>()
+            o.optJSONArray("knownIds")?.let { a -> (0 until a.length()).forEach { ids.add(a.getString(it)) } }
             val arr = o.optJSONArray("rules") ?: JSONArray()
             val rules = (0 until arr.length()).mapNotNull { i ->
                 val r = arr.optJSONObject(i) ?: return@mapNotNull null
@@ -199,7 +211,12 @@ data class RuleSet(
                     defaultId = r.optString("defaultId").ifBlank { null }
                 )
             }.filter { it.id.isNotBlank() }
-            RuleSet(o.optInt("version", 1), if (acc.isEmpty()) defaultAccounts() else acc, rules)
+            RuleSet(
+                version = o.optInt("version", 1),
+                accounts = if (acc.isEmpty()) defaultAccounts() else acc,
+                rules = rules,
+                knownIds = KNOWN_IDS + ids.filter { it.matches(ID_RE) }
+            )
         } catch (e: Exception) {
             null
         }
@@ -208,6 +225,9 @@ data class RuleSet(
             val o = JSONObject()
             o.put("version", set.version)
             o.put("accounts", JSONObject(set.accounts as Map<*, *>))
+            // Wajib ditulis: dialog Aturan menyalin JSON lewat model ini, jadi
+            // field yang tidak dimodelkan akan hilang diam-diam saat diedit manual.
+            o.put("knownIds", JSONArray(set.knownIds.sorted()))
             val arr = JSONArray()
             set.rules.forEach { r ->
                 arr.put(JSONObject().apply {
@@ -267,17 +287,17 @@ object RuleValidator {
                 if (name !in RuleSet.PLACEHOLDERS) return "placeholder '$slot' tidak dikenal"
                 continue
             }
-            if (slot !in RuleSet.KNOWN_IDS) {
-                return "id akun '$slot' tidak dikenal. Yang boleh: ${RuleSet.KNOWN_IDS.joinToString(", ")}"
-            }
-        }
-        if (rule.command.startsWith("/pindahin") && slots.size != 2) {
-            return "/pindahin butuh dua id akun, contoh: /pindahin {src} {dst} {amount}"
-        }
+              if (slot !in set.knownIds) {
+                  return "id akun '$slot' tidak dikenal. Yang boleh: ${set.knownIds.sorted().joinToString(", ")}"
+              }
+          }
+          if (rule.command.startsWith("/pindahin") && slots.size != 2) {
+              return "/pindahin butuh dua id akun, contoh: /pindahin {src} {dst} {amount}"
+          }
 
-        rule.defaultId?.let {
-            if (it !in RuleSet.KNOWN_IDS) return "defaultId '$it' tidak dikenal"
-        }
+          rule.defaultId?.let {
+              if (it !in set.knownIds) return "defaultId '$it' tidak dikenal"
+          }
 
         val clash = set.rules.firstOrNull {
             it.id != rule.id && it.enabled && it.bank == rule.bank && it.priority == rule.priority

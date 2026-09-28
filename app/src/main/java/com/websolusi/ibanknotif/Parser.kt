@@ -16,88 +16,42 @@ data class Parsed(
 
 /**
  * Ekstraksi primitif dari teks notifikasi: nominal, rekening asal, rekening
- * tujuan, waktu event. Regex di sini sengaja tetap di dalam kode karena ini
- * lapisan paling rendah. Yang sering diperbaiki justru keputusan di atasnya,
- * dan itu kini ditangani [RuleEngine].
+ * tujuan, waktu event. Yang sering diperbaiki justru keputusan di atasnya, dan
+ * itu kini ditangani [RuleEngine].
+ *
+ * Regex-nya sendiri berasal dari [PatternStore] supaya format notifikasi bank
+ * yang baru bisa ditangani tanpa build ulang. Fungsi di sini tetap murni: tidak
+ * ada jaringan, dan [PatternStore.aktif] hanya mengembalikan pola yang sudah
+ * dikompilasi di dalam memori.
  */
 object Parser {
-
-    private val BANK_PKG = mapOf(
-        "com.bca" to "bca",
-        "com.bca.mybca" to "bca",
-        "co.id.mandiri.livin" to "mandiri",
-        "co.id.mandiri.touch" to "mandiri",
-        "id.co.bri.brimo" to "bri",
-        "com.bri.brimo" to "bri",
-        "id.co.bri.www.brimo" to "bri"
-    )
-
-    private val AMOUNT_RE = Regex("""(?:IDR|Rp)[\s.]*(\d[\d.,]+)""", RegexOption.IGNORE_CASE)
-    private val AMOUNT_NO_RP_RE = Regex("""(?:sebesar|sejumlah|nominal|rp|idr)?\s*(\d{1,3}(?:\.\d{3})+)(?:,\d{2})?""", RegexOption.IGNORE_CASE)
-    private val REKENING_RE = Regex("""rekening[:\s]*(\d{10,20})""", RegexOption.IGNORE_CASE)
-    private val BRI_NAME_RE = Regex("""KET\.[A-Z0-9]*?_(?:\d+_)*([A-Za-z ]+)\s*$""")
-    private val BRI_NAMA_AFTER_KET_RE = Regex("""KET\.[A-Z0-9_]+?\s+([A-Z][A-Za-z .]+)\s*$""")
-
-    private val ACCOUNT_TOKEN = """([Xx*][Xx*.\- ]*)?(\d{4})\b"""
-
-    // Rekening ASAL: selalu mengikuti kata "dari" / "rekening asal".
-    private val SRC_RES = listOf(
-        Regex("""dari\s+(?:rekening\s+tabungan\s+|rekening\s+|rek\.\s*)?$ACCOUNT_TOKEN""", RegexOption.IGNORE_CASE),
-        Regex("""dari\s+(?:rekening\s+)?(\d{7,20})\b""", RegexOption.IGNORE_CASE),
-        Regex("""rekening\s+(?:asal|sumber)\s*[:\s]*$ACCOUNT_TOKEN""", RegexOption.IGNORE_CASE)
-    )
-
-    // Rekening TUJUAN: "nomor rekening tujuan" / "rekening tujuan" / "ke rekening".
-    private val DST_RES = listOf(
-        Regex(
-            """(?:nomor\s+rekening\s+tujuan|rekening\s+tujuan|ke\s+rekening|ke\s+rek\.)[:\s]*$ACCOUNT_TOKEN""",
-            RegexOption.IGNORE_CASE
-        ),
-        Regex("""(?:nomor\s+rekening\s+tujuan|ke\s+rekening)[:\s]*(\d{7,20})\b""", RegexOption.IGNORE_CASE)
-    )
-
-    // Waktu event BRI muncul dalam dua bentuk: "03/09/2026 07:12:49" pada notif
-    // ringkas, "28 September 2026, 07:36:51 WIB" pada notif riwayat. Keduanya
-    // dinormalkan ke satu bentuk, kalau tidak dua notif satu peristiwa punya
-    // tanda tangan berbeda dan keduanya lolos -> catat ganda.
-    private val EVENT_TS_RES = listOf(
-        Regex("""(\d{2})/(\d{2})/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})"""),
-        Regex("""(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})[,.]?\s+(\d{2}):(\d{2}):(\d{2})""")
-    )
-
-    private val BULAN = mapOf(
-        "jan" to 1, "januari" to 1, "feb" to 2, "februari" to 2,
-        "mar" to 3, "maret" to 3, "apr" to 4, "april" to 4,
-        "mei" to 5, "may" to 5, "jun" to 6, "juni" to 6,
-        "jul" to 7, "juli" to 7, "agu" to 8, "agustus" to 8, "aug" to 8,
-        "sep" to 9, "september" to 9, "okt" to 10, "oktober" to 10, "oct" to 10,
-        "nov" to 11, "november" to 11, "des" to 12, "desember" to 12, "dec" to 12
-    )
-
-    fun bankLabel(pkg: String): String? = BANK_PKG[pkg]
 
     /** Ekstraksi nominal saja. */
     fun amountOf(text: String): Long? = extractAmount(text)
 
-    fun extractSource(text: String): String? = pickLast4(SRC_RES, text)
+    fun extractSource(text: String): String? = pickLast4(PatternStore.aktif().src, text)
 
-    fun extractDestination(text: String): String? = pickLast4(DST_RES, text)
+    fun extractDestination(text: String): String? = pickLast4(PatternStore.aktif().dst, text)
 
     /** 4 digit terakhir rekening yang disebut, baik penuh maupun termask. */
     fun extractLast4(text: String): String? {
-        val reken = REKENING_RE.find(text)?.groupValues?.get(1)
-        if (reken != null && reken.length >= 4) return reken.takeLast(4)
-        val masked = Regex("""[Xx*].{0,3}(\d{4})\b""").find(text)?.groupValues?.get(1)
-        return masked
+        val p = PatternStore.aktif()
+        val t = potong(text)
+        val penuh = p.rekening.find(t)
+        if (penuh != null && penuh.groupValues.size > 1 && penuh.groupValues[1].length >= 4) {
+            return penuh.groupValues[1].takeLast(4)
+        }
+        val termask = p.maskedLast4.find(t)
+        return if (termask != null && termask.groupValues.size > 1) termask.groupValues[1] else null
     }
 
     fun extractName(bank: String, text: String): String? {
         if (bank == "bri") {
-            BRI_NAME_RE.find(text)?.let {
+            Regex("""KET\.[A-Z0-9]*?_(?:\d+_)*([A-Za-z ]+)\s*$""").find(text)?.let {
                 val n = it.groupValues[1].trim()
                 if (n.length >= 3) return n
             }
-            BRI_NAMA_AFTER_KET_RE.find(text)?.let {
+            Regex("""KET\.[A-Z0-9_]+?\s+([A-Z][A-Za-z .]+)\s*$""").find(text)?.let {
                 val n = it.groupValues[1].trim()
                 if (n.length >= 3) return n
             }
@@ -110,19 +64,24 @@ object Parser {
         return null
     }
 
-    /** Waktu event dalam bentuk kanonik `yyyy-MM-dd HH:mm:ss`. Null kalau tidak ada di teks. */
+    /**
+     * Waktu event dalam bentuk kanonik `yyyy-MM-dd HH:mm:ss`. BRImo menulisnya
+     * dalam dua bentuk: `03/09/2026 07:12:49` pada notif ringkas, dan
+     * `28 September 2026, 07:36:51 WIB` pada notif riwayat. Keduanya
+     * dinormalkan ke satu bentuk, kalau tidak dua notif satu peristiwa punya
+     * tanda tangan berbeda dan keduanya lolos -> catat ganda.
+     * Null kalau tidak ada waktu event di teks.
+     */
     private fun eventTs(text: String): String? {
-        EVENT_TS_RES[0].find(text)?.let { m ->
+        val t = potong(text)
+        for (rx in PatternStore.aktif().eventTs) {
+            val m = rx.find(t) ?: continue
+            // Pola 1: grup 2 = bulan angka. Pola 2: grup 2 = nama bulan.
+            val g = m.groupValues
+            if (g.size < 7) continue
+            val bulan = g[2].toIntOrNull() ?: PatternStore.aktif().bulan[g[2].lowercase()] ?: continue
             return "%04d-%02d-%02d %02d:%02d:%02d".format(
-                m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt(),
-                m.groupValues[4].toInt(), m.groupValues[5].toInt(), m.groupValues[6].toInt()
-            )
-        }
-        EVENT_TS_RES[1].find(text)?.let { m ->
-            val bulan = BULAN[m.groupValues[2].lowercase()] ?: return null
-            return "%04d-%02d-%02d %02d:%02d:%02d".format(
-                m.groupValues[3].toInt(), bulan, m.groupValues[1].toInt(),
-                m.groupValues[4].toInt(), m.groupValues[5].toInt(), m.groupValues[6].toInt()
+                g[3].toInt(), bulan, g[1].toInt(), g[4].toInt(), g[5].toInt(), g[6].toInt()
             )
         }
         return null
@@ -130,9 +89,9 @@ object Parser {
 
     /**
      * Tanda tangan transaksi: bank + nominal + waktu event dari dalam teks notif.
-     * Waktu event sudah dinormalkan ke `yyyy-MM-dd HH:mm:ss`, jadi dua notif satu
-     * peristiwa yang beda format tulisannya tetap menghasilkan tanda tangan sama
-     * dan hanya satu yang lolos.
+     * Waktu event sudah dinormalkan, jadi dua notif satu peristiwa yang beda
+     * format tulisannya tetap menghasilkan tanda tangan sama dan hanya satu
+     * yang lolos.
      * Null kalau notif tidak memuat waktu event (myBCA), andalkan dedup notifikasi.
      */
     fun transactionSignature(bank: String, text: String, amount: Long): String? {
@@ -155,14 +114,10 @@ object Parser {
     }
 
     private fun extractAmount(text: String): Long? {
-        AMOUNT_RE.find(text)?.let { m ->
-            val cleaned = m.groupValues[1]
-                .replace(Regex("""[.,]\d{2}$"""), "")
-                .replace(".", "").replace(",", "")
-            cleaned.toLongOrNull()?.let { return it }
-        }
-        AMOUNT_NO_RP_RE.find(text)?.let { m ->
-            val cleaned = m.groupValues[1]
+        val t = potong(text)
+        for (rx in PatternStore.aktif().amount) {
+            val m = rx.find(t) ?: continue
+            val cleaned = m.groupValues.drop(1).joinToString("")
                 .replace(Regex("""[.,]\d{2}$"""), "")
                 .replace(".", "").replace(",", "")
             cleaned.toLongOrNull()?.let { return it }
@@ -171,11 +126,20 @@ object Parser {
     }
 
     private fun pickLast4(res: List<Regex>, text: String): String? {
+        val t = potong(text)
         for (re in res) {
-            val m = re.find(text) ?: continue
+            val m = re.find(t) ?: continue
             val digits = m.groupValues.drop(1).joinToString("").filter { it.isDigit() }
             if (digits.length >= 4) return digits.takeLast(4)
         }
         return null
     }
+
+    /**
+     * Batas panjang teks sebelum dicocokkan pola. Satu-satunya penahan yang
+     * berlaku untuk semua bentuk regex, termasuk pola dari server yang lolos
+     * saringan [PatternStore].
+     */
+    private fun potong(text: String): String =
+        if (text.length > PatternStore.MAX_TEXT) text.take(PatternStore.MAX_TEXT) else text
 }

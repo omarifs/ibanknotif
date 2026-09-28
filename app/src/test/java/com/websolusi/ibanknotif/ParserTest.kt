@@ -397,3 +397,179 @@ class RuleValidatorTest {
         assertNull(RuleValidator.validate(good, base()))
     }
 }
+
+/**
+ * Id akun yang boleh muncul di command, sekarang bisa ditambah dari
+ * `rules.json` tanpa build. Server boleh menambah, tidak bisa menghapus bawaan.
+ */
+class KnownIdsTest {
+
+    @Test
+    fun `knownIds dari server digabung dengan bawaan kode`() {
+        val json = """
+            {"version":1,"accounts":{"8533":"bri.ibu"},"knownIds":["bri.ibu","bca.ayah"],"rules":[]}
+        """.trimIndent()
+        val set = RuleSet.fromJson(json)!!
+        assertTrue("bri.vidha" in set.knownIds)
+        assertTrue("mandiri" in set.knownIds)
+        assertTrue("bca.ayah" in set.knownIds)
+    }
+
+    @Test
+    fun `rules.json tanpa knownIds aman dan hanya memuat bawaan`() {
+        val set = RuleSet.fromJson("""{"version":2,"accounts":{"8533":"bri.ibu"},"rules":[]}""")!!
+        assertEquals(RuleSet.KNOWN_IDS, set.knownIds)
+    }
+
+    @Test
+    fun `id dengan bentuk salah dibuang dari daftar server`() {
+        val json = """
+            {"version":1,"accounts":{},"knownIds":["bca.ayah","ADA CAPS","x y","-huruf",""],"rules":[]}
+        """.trimIndent()
+        val set = RuleSet.fromJson(json)!!
+        assertTrue("bca.ayah" in set.knownIds)
+        assertFalse("ADA CAPS" in set.knownIds)
+        assertFalse("x y" in set.knownIds)
+    }
+
+    @Test
+    fun `knownIds tidak hilang saat json dibolak balik lewat editor`() {
+        // Dialog Aturan menyalin JSON lewat RuleSet, jadi field yang tidak
+        // dimodelkan akan hilang diam-diam setiap kali pengguna mengedit manual.
+        val asli = RuleSet.fromJson("""{"version":1,"accounts":{},"knownIds":["bca.ayah"],"rules":[]}""")!!
+        val bolak = RuleSet.fromJson(RuleSet.toJson(asli))!!
+        assertTrue("bca.ayah" in bolak.knownIds)
+    }
+
+    @Test
+    fun `id dari server boleh dipakai di aturan`() {
+        val json = """
+            {"version":1,"accounts":{"9911":"bca.ayah"},
+             "knownIds":["bca.ayah"],
+             "rules":[{"id":"bca-ayah","name":"ayah","bank":"bca","priority":10,
+                       "when":["src_own"],"command":"/tabout bca.ayah {amount}"}]}
+        """.trimIndent()
+        val set = RuleSet.fromJson(json)!!
+        assertNull(RuleValidator.validateAll(set))
+    }
+
+    @Test
+    fun `isSendable menolak id yang tidak terdaftar`() {
+        val ids = RuleSet.KNOWN_IDS
+        assertTrue(RuleEngine.isSendable("/tabout bri.ibu 200000", ids))
+        assertTrue(RuleEngine.isSendable("/pindahin bri.ibu bri.vidha 100000", ids))
+        assertFalse(RuleEngine.isSendable("/tabout bni.baru 200000", ids))
+        assertFalse(RuleEngine.isSendable("/tabout tujuan.rek 200000", ids))
+        assertFalse(RuleEngine.isSendable("/pindahin bri.ibu bni.baru 100000", ids))
+        assertFalse(RuleEngine.isSendable("/tabout bri.ibu 200000 /pindahin", ids))
+    }
+
+    @Test
+    fun `isSendable menerima id yang ditambahkan dari server`() {
+        val ids = RuleSet.KNOWN_IDS + "bca.ayah"
+        assertTrue(RuleEngine.isSendable("/tabout bca.ayah 200000", ids))
+    }
+}
+
+/**
+ * Pola notifikasi came from server as data. Yang menguji keamanannya di sini
+ * adalah [PatternStore.paritas]: pola dari server tidak boleh dipakai kalau
+ * hasilnya berbeda dari pola bawaan pada notifikasi nyata.
+ */
+class PatternStoreTest {
+
+    private fun bundled(): String {
+        val f = File("src/main/assets/patterns.json")
+        assertTrue("assets/patterns.json tidak ditemukan di ${f.absolutePath}", f.exists())
+        return f.readText()
+    }
+
+    @Test
+    fun `pola bawaan di assets valid dan version positif`() {
+        val (p, e) = PatternStore.parse(bundled())
+        assertNull(e)
+        assertNotNull(p)
+        assertEquals(1, p!!.version)
+    }
+
+    @Test
+    fun `pola bawaan lolos paritas terhadap dirinya sendiri`() {
+        val (p, e) = PatternStore.parse(bundled())
+        assertNull(e)
+        assertNull(PatternStore.paritas(p!!))
+    }
+
+    @Test
+    fun `perubahan pola yang benar ditolak oleh paritas`() {
+        // Menambah satu pola rekening yang lebih longgar akan mengubah hasil
+        // ekstraksi pada notif BRImo - itu harus ketahuan, bukan diam saja.
+        val diubah = bundled().replace(
+            """"maskedLast4": "[Xx*].{0,3}(\\d{4})\\b"""",
+            """"maskedLast4": "[Xx*].*?(\\d{4})\\b""""
+        )
+        assertTrue("pola tidak ketemu, tes ini tidak menguji apa pun", diubah != bundled())
+        val (p, e) = PatternStore.parse(diubah)
+        assertNull(e)
+        assertNotNull("pola seharusnya tetap bisa dikompilasi", p)
+        val beda = PatternStore.paritas(p!!)
+        assertNotNull("paritas harus gagal", beda)
+        assertTrue(beda!!.contains("probe"))
+    }
+
+    @Test
+    fun `pola yang gagal compile ditolak`() {
+        val rusak = bundled().replace("\"version\": 1", "\"version\": 1, \"rekening\": \"((\"")
+        val (p, e) = PatternStore.parse(rusak)
+        assertNull(p)
+        assertNotNull(e)
+        assertTrue(e!!.contains("rekening"))
+    }
+
+    @Test
+    fun `pola dengan pengulang bersarang ditolak`() {
+        val nakal = bundled().replace("\"version\": 1", "\"version\": 1, \"rekening\": \"(.+)+\"")
+        val (p, e) = PatternStore.parse(nakal)
+        assertNull(p)
+        assertNotNull(e)
+    }
+
+    @Test
+    fun `pola terlalu panjang ditolak`() {
+        val panjang = "(?:a|b|" + "c".repeat(PatternStore.MAX_PATTERN) + ")"
+        val nakal = bundled().replace("\"version\": 1", "\"version\": 1, \"rekening\": \"$panjang\"")
+        val (p, _) = PatternStore.parse(nakal)
+        assertNull(p)
+    }
+
+    @Test
+    fun `daftar wajib yang kosong ditolak`() {
+        val kosong = bundled().replace("\"version\": 1", "\"version\": 1, \"src\": []")
+        val (p, e) = PatternStore.parse(kosong)
+        assertNull(p)
+        assertTrue(e!!.contains("src"))
+    }
+
+    @Test
+    fun `version harus positif`() {
+        val (p, e) = PatternStore.parse("""{"version":0,"amount":[],"src":[],"dst":[],"eventTs":[]}""")
+        assertNull(p)
+        assertNotNull(e)
+    }
+
+    @Test
+    fun `nama bank dibaca dari bankPkg`() {
+        assertEquals("bri", PatternStore.bankLabel("id.co.bri.brimo"))
+        assertEquals("bca", PatternStore.bankLabel("com.bca.mybca"))
+        assertEquals("mandiri", PatternStore.bankLabel("co.id.mandiri.livin"))
+        assertNull(PatternStore.bankLabel("com.tidak.ada"))
+    }
+
+    @Test
+    fun `teks panjang dipotong sebelum dicocokkan pola`() {
+        // Penanda rekening yang berada di luar 2000 karakter pertama tidak boleh
+        // terbaca. Inilah satu-satunya penahan yang berlaku untuk semua pola,
+        // termasuk pola dari server yang lolos saringan ReDoS.
+        assertNull(Parser.extractSource("x".repeat(5000) + " dari rekening 8533"))
+        assertEquals("8533", Parser.extractSource("dari rekening 8533 " + "x".repeat(500)))
+    }
+}

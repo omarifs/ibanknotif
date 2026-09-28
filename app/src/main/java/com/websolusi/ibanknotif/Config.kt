@@ -22,16 +22,7 @@ object Config {
     fun chatId(ctx: Context): Long =
         prefs(ctx).getLong(KEY_CHAT_ID, -1002031892399)
 
-    private val BCA_PKGS = setOf("com.bca", "com.bca.mybca", "com.bca.mobile", "com.bca.mbs")
-    private val MANDIRI_PKGS = setOf("co.id.mandiri.livin", "co.id.mandiri.touch")
-    private val BRI_PKGS = setOf("id.co.bri.brimo", "com.bri.brimo", "id.co.bri.www.brimo")
-
-    fun bankLabel(pkg: String): String? = when (pkg) {
-        in BCA_PKGS -> "bca"
-        in MANDIRI_PKGS -> "mandiri"
-        in BRI_PKGS -> "bri"
-        else -> null
-    }
+    fun bankLabel(pkg: String): String? = PatternStore.bankLabel(pkg)
 
     fun isBankEnabled(ctx: Context, pkg: String): Boolean {
         val p = prefs(ctx)
@@ -40,7 +31,9 @@ object Config {
             "bca" -> p.getBoolean(KEY_BCA, true)
             "mandiri" -> p.getBoolean(KEY_MANDIRI, true)
             "bri" -> p.getBoolean(KEY_BRI, true)
-            else -> false
+            // Bank yang belum punya tombol di UI: aktifkan. Menolaknya berarti
+            // bank yang baru ditambah lewat patterns.json tidak akan pernah jalan.
+            else -> true
         }
     }
 
@@ -49,7 +42,7 @@ object Config {
             "bca" -> true
             "mandiri" -> true
             "bri" -> true
-            else -> false
+            else -> true
         }
     }
 

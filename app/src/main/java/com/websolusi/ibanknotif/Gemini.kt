@@ -88,15 +88,9 @@ object Gemini {
         }
     }
 
-    private val BANK_ALIAS = mapOf(
-        "com.bca" to "bca", "com.bca.mybca" to "bca", "com.bca.mobile" to "bca", "com.bca.mbs" to "bca",
-        "co.id.mandiri.livin" to "mandiri", "co.id.mandiri.touch" to "mandiri",
-        "id.co.bri.brimo" to "bri", "com.bri.brimo" to "bri", "id.co.bri.www.brimo" to "bri"
-    )
-
     data class RawNotif(val pkg: String, val title: String, val text: String, val bigText: String?)
 
-    fun bankLabel(pkg: String): String? = BANK_ALIAS[pkg]
+    fun bankLabel(pkg: String): String? = PatternStore.bankLabel(pkg)
 
     /**
      * Kirim daftar notif + kamus bank + aturan format ke Gemini.
@@ -311,7 +305,7 @@ object Gemini {
         sb.append("  has:kata    not:kata    has_any:kata1|kata2    has_none:kata1|kata2\n")
         sb.append("  amount_gt:N   amount_lt:N\n\n")
         sb.append("id akun yang boleh muncul di command: ")
-            .append(RuleSet.KNOWN_IDS.joinToString(", ")).append("\n\n")
+            .append(current.knownIds.sorted().joinToString(", ")).append("\n\n")
         sb.append("ATURAN WAJIB:\n")
         sb.append("1. 'when' WAJIB dari kosakata di atas. Jangan tulis regex.\n")
         sb.append("2. DILARANG memakai nominal atau tanggal contoh di 'when' maupun 'command'.\n")

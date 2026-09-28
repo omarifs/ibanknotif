@@ -465,6 +465,90 @@ kompilasi.
 notifikasi pasangannya membawa waktu event berbeda. Perbaikannya di sisi PHP,
 di luar lingkup perubahan ini.
 
+### N. Pola Notifikasi dan Allowlist Id Jadi Data (2026-09-28)
+
+Lanjutan 5L dan 5M. Batasnya: HP vidha tidak bisa di-install ulang, jadi APK
+di sana **membeku**. Yang bisa menjangkau vidha hanya file yang dibaca rules
+engine. Sisanya baru aktif setelah APK baru terpasang.
+
+**Aturan kompatibilitas yang jadi syarat.** Semua file di server harus tetap
+valid bagi APK yang sekarang terpasang di vidha. Itu yang membatasi
+`knownIds`: daftar itu boleh memuat id baru, tapi **aturan mana pun tidak boleh
+memakai id itu** - kalau dipakai, validator APK lama menolak seluruh file dan
+vidha membeku di versi lama. Diverifikasi dengan menyimulasikan validator APK
+lama terhadap `rules.json` v3: id literal yang dipakai aturan cuma `bca` dan
+`mandiri`, keduanya sudah ada di konstanta kode, jadi v3 diterima.
+
+**`patterns.json`: pola regex notifikasi jadi data.**
+
+`Parser` tadinya punya 5 regex yang dikompilasi sekali sebagai `val`, dan 3
+lagi yang dikompilasi ulang tiap pemanggilan. Format notifikasi bank berubah
+cukup sering, dan tiap perubahan butuh build di dua HP.
+
+Dua aturan yang tidak boleh dilanggar:
+
+1. **Jalur notifikasi tidak pernah menyentuh jaringan.** Pola ditransfer
+   `PatternStore.terapkan`, yang dipanggil dari UI dan saat aplikasi dibuka.
+   Setelah itu `PatternStore.aktif()` hanya mengembalikan objek yang sudah
+   dikompilasi, persis seperti `val Regex` biasa - jadi tidak ada regresi
+   performa di jalur panas. Kalau pola dibaca dari cache lalu dikompilasi ulang
+   per notifikasi, itu justru lebih lambat dari sebelumnya.
+2. **Pola dari server tidak dipercaya tanpa diuji.** Urutan saringan: compile,
+   panjang maksimal 300 karakter, bentuk `(.+)+`, lalu **uji paritas** atas 11
+   notifikasi nyata yang tertanam di APK (`PatternStore.PROBE`). Hasil
+   ekstraksi harus identik dengan pola bawaan; beda satu karakter pun, pola
+   ditolak dan yang bawaan tetap dipakai, alasannya masuk log.
+
+Batasnya harus jujur: **regex dari server tidak bisa dibuktikan aman.**
+Tiga langkah di atas adalah mitigation, bukan jaminan. Yang paling menahan
+adalah paritas, tapi paritas hanya membuktikan apa yang ada di probe; pola yang
+benar di semua probe lalu salah pada format yang belum pernah dilihat tetap bisa
+lolos. Penahan terakhir yang berlaku untuk semua bentuk regex adalah
+`MAX_TEXT` 2.000 karakter sebelum teks dicocokkan.
+
+**`knownIds`: allowlist id akun jadi data.**
+
+Selama ini menambah satu rekening di bank yang sudah ada butuh build, karena
+`KNOWN_IDS` ada di kode dan `RuleValidator` menolaknya. Worse: kegagalan itu
+menolak **seluruh** ruleset, jadi sinkron ikut macet. Sekarang
+`RuleSet.knownIds` = daftar dari server digabung `KNOWN_IDS` bawaan. Server
+boleh menambah, tidak bisa menghapus bawaan. `rules.json` yang belum punya
+field itu aman - hasilnya cuma bawaan.
+
+Field ini **wajib dimodelkan**, bukan ditempel sebagai string: dialog Aturan
+menyalin JSON lewat `RuleSet`, jadi field yang tidak ada di model akan hilang
+diam-diam setiap kali pengguna mengedit manual.
+
+**`isSendable` diperketat.** Sebelumnya `SENDABLE` menerima id lowercase
+apa saja - itulah asal akun sampah `tujuan rek` dan `normalisasi` yang ada di
+`tele_tabungan`. Sekarang gerbangnya memeriksa bentuk **dan** nama akun, dan
+dipakai di ketiga jalur: rules, template belajar, dan usulan AI.
+
+**Bug yang tertangkap saat porting.** `isSendable` versi pertama memeriksa
+`groupValues[3]` untuk `/pindahin`, padahal grup 3 itu **nominal**, bukan id
+tujuan. Kalau lolos, **semua** perintah `/pindahin` akan ditolak - dan tidak ada
+error, hanya pindahin yang diam-diam hilang. Tertangkap karena logikanya
+dijalankan ulang di Python atas seluruh fixture, bukan hanya dibaca.
+
+**Peta paket bank yang tadinya terduplikasi tiga kali.** `bankPkg` masuk
+`patterns.json`, dan dua salinan lama di `Config` serta `Gemini` dihapus.
+Sebelumnya peta itu ada di tiga tempat; pola yang diubah di satu tempat
+diam-diam berbeda dari yang lain. `isBankEnabled` juga diubah dari
+`else -> false` jadi `true`: kalau tidak, bank yang baru ditambahkan lewat
+`patterns.json` tidak akan pernah jalan karena tidak punya tombol di UI.
+
+**Verifikasi.** Tetap tanpa JDK, jadi `Parser`, `Rule`, `RuleEngine`, dan
+`PatternStore` diport ke Python lalu 69 pemeriksaan dijalankan - semuanya
+lulus, termasuk uji bahwa pola yang sengaja dilonggarkan **ditolak** oleh
+paritas. Yang tetap tidak terbukti adalah kompilasi; `./gradlew testDebugUnitTest`
+harus jalan di mesin yang punya SDK.
+
+**Yang tidak ikut terperbaiki, dan tidak akan pernah di vidha.** Notif BRImo
+bentuk kaya hanya menampakkan tiga digit terakhir, sedangkan peta rekening
+memakai empat. Pola regex tidak bisa menutup itu - regex tidak bisa membawa
+artinya "ini rekening vidha". Notif itu akan tetap diam. Itu kehilangan
+pencatatan, bukan penulisan yang salah, dan memang lebih baik begitu.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 

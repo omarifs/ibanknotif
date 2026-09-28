@@ -30,7 +30,7 @@ object RuleEngine {
             considered++
             if (rule.stop) return Decision(null, rule, considered)
             val cmd = rule.render(parsed, set.accounts) ?: continue
-            if (!isSendable(cmd)) continue
+            if (!isSendable(cmd, set.knownIds)) continue
             return Decision(
                 Outcome(cmd, rule.direction(), rule.id, rule.name),
                 null,
@@ -43,12 +43,25 @@ object RuleEngine {
     /** Bentuk ringkas untuk jalur otomatis. */
     fun evaluate(parsed: Parsed, set: RuleSet): Outcome? = decide(parsed, set).outcome
 
-    /** Gerbang terakhir sebelum dikirim ke server. Tidak ada command yang lolos tanpa ini. */
-    private val SENDABLE = Regex("""^/(tabin|tabout) [a-z0-9._]{1,40} \d{1,14}$""")
-    private val SENDABLE_PINDAHIN = Regex("""^/pindahin [a-z0-9._]{1,40} [a-z0-9._]{1,40} \d{1,14}$""")
+    /**
+     * Gerbang terakhir sebelum dikirim ke server. Tidak ada command yang lolos
+     * tanpa ini. Bentuk DAN nama akun keduanya diperiksa, jadi id yang tidak
+     * terdaftar - dari AI, dari template belajar, atau dari ruleset yang rusak -
+     * tidak pernah sampai ke server. Buktinya ada di `tele_tabungan`: ada baris
+     * `tujuan rek` dan `normalisasi` yang dulu tercipta dari app versi lama.
+     */
+    private val SENDABLE = Regex("""^/(tabin|tabout) ([a-z0-9._]{1,40}) (\d{1,14})$""")
+    private val SENDABLE_PINDAHIN = Regex("""^/pindahin ([a-z0-9._]{1,40}) ([a-z0-9._]{1,40}) (\d{1,14})$""")
 
-    fun isSendable(command: String): Boolean =
-        SENDABLE.matches(command) || SENDABLE_PINDAHIN.matches(command)
+    fun isSendable(command: String, knownIds: Set<String> = RuleSet.KNOWN_IDS): Boolean {
+        val m = SENDABLE.matchEntire(command)
+        // groupValues: 0 = seluruh perintah, 1 = id, 2 = nominal
+        if (m != null) return m.groupValues[1] in knownIds
+        val p = SENDABLE_PINDAHIN.matchEntire(command)
+        // groupValues: 0 = seluruh perintah, 1 = id asal, 2 = id tujuan, 3 = nominal
+        if (p != null) return p.groupValues[1] in knownIds && p.groupValues[2] in knownIds
+        return false
+    }
 
     /** Ringkasan dry-run untuk layar Aturan. */
     fun explain(parsed: Parsed, set: RuleSet): String {

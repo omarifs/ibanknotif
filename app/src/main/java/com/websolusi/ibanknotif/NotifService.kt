@@ -98,11 +98,14 @@ class NotifService : NotificationListenerService() {
         Config.appendLog(this, "AUTODETECT [$bank]: $fullText")
 
         // 1. Template hasil belajar (pola dari Gemini) jadi cadangan klasifikasi
-        //    yang sudah dikoreksi manual sebelumnya.
+        //    yang sudah dikoreksi manual sebelumnya. Dievaluasi sebelum rules,
+        //    jadi gerbang isSendable di sini wajib memakai knownIds yang sama:
+        //    kalau tidak, template lama bisa mengirim id akun yang tak terdaftar.
+        val rules = RuleStore.load(this)
         val learned = Learning.match(bank, fullText, this)?.let { cmd ->
             if (cmd.contains("{amount}")) Learning.fillAmount(cmd, Parser.amountOf(fullText) ?: 0L) else cmd
         }
-        if (learned != null && !learned.contains("{amount}") && RuleEngine.isSendable(learned)) {
+        if (learned != null && !learned.contains("{amount}") && RuleEngine.isSendable(learned, rules.knownIds)) {
             Config.appendLog(this, "AUTO-SEND (LEARNED): $learned")
             Config.markProcessed(this, *newKeys)
             Sink.send(this, learned, dedupKey)
@@ -115,7 +118,6 @@ class NotifService : NotificationListenerService() {
             Config.appendLog(this, "SKIP (TIDAK ADA NOMINAL): $fullText")
             return
         }
-        val rules = RuleStore.load(this)
         val decision = RuleEngine.decide(parsed, rules)
         if (decision.outcome == null) {
             val alasan = if (decision.stoppedBy != null) "diam: ${decision.stoppedBy.name}" else "tidak ada aturan yang cocok"
