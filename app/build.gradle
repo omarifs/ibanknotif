@@ -36,4 +36,8 @@ dependencies {
     implementation "androidx.appcompat:appcompat:1.6.1"
     implementation "com.google.android.material:material:1.11.0"
     testImplementation "junit:junit:4.13.2"
+    // Wajib. Tanpa ini `org.json` di unit test memakai stub dari android.jar yang
+    // melempar exception, jadi setiap fromJson mengembalikan null dan semua test
+    // yang menyentuh rules.json atau patterns.json gagal dengan NullPointerException.
+    testImplementation "org.json:json:20231013"
 }

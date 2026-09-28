@@ -50,7 +50,11 @@ object RuleEngine {
      * tidak pernah sampai ke server. Buktinya ada di `tele_tabungan`: ada baris
      * `tujuan rek` dan `normalisasi` yang dulu tercipta dari app versi lama.
      */
-    private val SENDABLE = Regex("""^/(tabin|tabout) ([a-z0-9._]{1,40}) (\d{1,14})$""")
+    // Verb ditulis non-tangkap `(?:...)` dengan sengaja: kalau ia ikut jadi grup,
+    // indeks groupValues bergeser dan id akun dibaca sebagai "tabout". Salah sudah
+    // dua kali. groupValues: 0 = seluruh perintah, 1 = id, 2 = nominal
+    private val SENDABLE = Regex("""^/(?:tabin|tabout) ([a-z0-9._]{1,40}) (\d{1,14})$""")
+    // 0 = seluruh perintah, 1 = id asal, 2 = id tujuan, 3 = nominal
     private val SENDABLE_PINDAHIN = Regex("""^/pindahin ([a-z0-9._]{1,40}) ([a-z0-9._]{1,40}) (\d{1,14})$""")
 
     fun isSendable(command: String, knownIds: Set<String> = RuleSet.KNOWN_IDS): Boolean {
