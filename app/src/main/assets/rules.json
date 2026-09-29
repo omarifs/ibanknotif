@@ -1,12 +1,12 @@
 {
-  "version": 4,
+  "version": 5,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
   },
   "knownIds": ["bri.ibu", "bri.vidha", "bca", "mandiri"],
   "pairs": {
-    "enabled": true,
+    "enabled": false,
     "windowSec": 300,
     "feeMax": 1000
   },
