@@ -89,7 +89,7 @@ object Config {
      * apply() dipakai, panggilan berikutnya bisa membaca daftar lama dan
      * menimpa key yang baru saja ditulis -> guard anti dobel jadi bocor.
      */
-    fun markProcessed(ctx: Context, var *keys: String) {
+    fun markProcessed(ctx: Context, vararg keys: String) {
         if (keys.isEmpty()) return
         val p = prefs(ctx)
         synchronized(p) {
