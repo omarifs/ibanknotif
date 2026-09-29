@@ -662,8 +662,8 @@ bahwa keduanya satu peristiwa. **Tidak ada `rules.json` yang bisa menutup ini**:
 HP pengirim tidak pernah tahu nomor rekening tujuan, jadi pasangannya harus
 ditebak, dan tebakan di sini merusak angka yang tidak bisa dikembalikan sendiri.
 
-**Tiga jebakan yang sudah kena waktu menulis.** Semuanya ketahuan
-karena tidak ada kompilasi lokal, hanya pemeriksaan bentuk:
+**Empat jebakan yang sudah kena waktu menulis.** Semuanya ketahuan karena
+tidak ada kompilasi lokal, hanya pemeriksaan bentuk:
 
 1. **Orphaned brace blok.** Mengedit penjelasan panjang di tengah file
    menyisakan `}` dan `}` yang menggantung di akhir `NotifService.kt` dan
@@ -680,6 +680,23 @@ karena tidak ada kompilasi lokal, hanya pemeriksaan bentuk:
    `telegram.php` mengembalikan false, webhook menjawab "deduplicated" lalu
    **keluar tanpa mencatat apa pun**. Bentuk yang salah berarti transaksi hilang
    diam-diam, jadi bentuknya dikunci test.
+4. **`vararg` terpotong jadi `var *` di `Config.markProcessed`.** Commit
+   `89b8687` rusak total karena satu baris, dan build gagal dengan 4 error
+   yang kelihatan seperti 4 bug berbeda: `Config.kt:92` `'var' on function
+   parameter is not allowed`, `Config.kt:97` `Type mismatch: String tapi
+   Collection<String> diharapkan`, lalu `MainActivity.kt:174` dan
+   `NotifService.kt:138` `spread operator (*foo) may only be applied in vararg
+   position`. Ketiga error terakhir **efek cascading**: begitu tanda tangan
+   `markProcessed` tidak dikenali sebagai vararg, `*newKeys` di pemanggil
+   otomatis gagal - padahal pemanggilnya benar sejak awal.
+
+   Yang paling menyakitkan: baris itu sudah benar di commit sebelumnya,
+   jadi bukan salah logika, tapi hasil penyuntingan. Dan **semua pemeriksaan
+   yang saya lakukan lolos**: kurung kurawal sudah seimbang, `var` dan `*`
+   sama-sama karakter yang sah secara sintaks, dan audit pola tidak
+   menangkapnya. Yang menangkap hanya compiler. Pelajaran: tanpa kompilasi,
+   "tidak ada error di output saya" bukan bukti, dan pemeriksaan bentuk
+   punya kelas buta yang harus selalu dicurigai.
 
 **Verifikasi.** Environment ini tidak punya JDK maupun Android SDK, jadi
 `./gradlew` tidak bisa dijalankan. Yang dilakukan: `Pairer.kt` dan `PairConfig`
