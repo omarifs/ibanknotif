@@ -611,6 +611,195 @@ yang paling lama. `knownIds` boleh memuat id baru tetapi aturan tidak boleh
 memakainya (validator APK lama menolak seluruh file). Setiap perubahan isi
 wajib menaikkan `version`, kalau tidak HP diam saja.
 
+### P. Dua Notifikasi Satu Peristiwa Jadi Satu `/pindahin` (2026-09-29)
+
+**Gejala.** Transfer BCA -> BRI lewat Flip menghasilkan dua baris:
+`/tabin bri.ibu 3500000` (dari notif BRImo) dan `/tabout bca 3500351` (dari
+notif myBCA). Seharusnya satu `/pindahin`. Selisih 351 adalah fee admin.
+
+**Kenapa tidak bisa diperbaiki dari `rules.json` saja.** `/pindahin` butuh kedua
+rekening di dalam satu notifikasi, dan tidak ada notifikasi yang punya keduanya:
+
+| Notifikasi | Isi | Yang tidak ada |
+| :--- | :--- | :--- |
+| BRImo | 3.500.000, rekening 8533 | tidak menyebut `bca`, tidak ada nama pengirim, tidak ada kata "transfer" |
+| myBCA | 3.500.351 | tidak ada nomor rekening sama sekali |
+| Flip | "Transfer to NURHASANAH successful!" | tidak ada nominal, tidak ada rekening |
+
+`RuleEngine.decide` dipanggil sekali per notifikasi dan tanpa state, dan
+kosakata tertutup di `Rule.kt` tidak punya token untuk menggabungkan dua
+notifikasi. Sinyal teksnya juga nihil: `Parser.extractName` untuk notif BRI itu
+cuma menghasilkan "Sobat" generik.
+
+**Yang DITOLAK: rule BRI `/pindahin bca {dst} {amount}`.** Lolos validator,
+tapi akan memakai `bca` sebagai asal untuk *setiap* transfer masuk dari luar.
+Persis kelas korupsinya di 5L, di mana `accounts` yang salah membuat transfer
+vidha -> ibu terbaca sebagai pemasukan dari pihak luar. Data yang dihitung bukan
+hanya bentuk command.
+
+**Perbaikan: `Pairer.kt`.** Hasil klasifikasi ditahan sebentar mencari sisi
+pasangnya, lalu dua sisanya disatukan. Syarat pemasangannya semuanya harus
+benar: arah berlawanan, kedua id rekening sendiri, prefix bank berbeda,
+`in <= out`, `out - in <= feeMax`, dan jarak waktu <= `windowSec`. Syarat "bank
+berbeda" itu yang mencegah transfer antar rekening di bank yang sama ikut
+terpair - kalau tidak, nominal internal yang tidak bulat jadi ikut dibulatkan,
+kerusakan yang sama seperti di 5O.
+
+Jendela waktu dan toleransi fee tetap **data** di `rules.json` (blok `pairs`),
+jadi bisa diubah tanpa build. Yang jadi kode hanya algorithma pennies-nya.
+
+**Konsekuensi yang disengaja.** Sisi yang tidak berpasangan dikirim apa adanya
+setelah `windowSec` - jadi kegagalan pairing hanya **menunda**, tidak
+menghilangkan. Penjadwalan itu wajib, bukan tambahan: tanpa itu, sisi
+`tabin` yang sendirian (dana masuk dari orang luar) tertahan selamanya kalau
+tidak ada notifikasi lain yang datang, dan uangnya tidak pernah tercatat.
+
+**Batas keras: hanya dua notifikasi yang tiba di HP yang sama.** Transfer dari
+HP satu ke rekening di HP lain tidak pernah bertemu - tiap HP punya buffer
+sendiri dan tidak ada kanal antar-HP. Saldo di kedua sisi tetap benar karena
+masing-masing tetap mengirim `/tabout` dan `/tabin`; yang hilang hanya penanda
+bahwa keduanya satu peristiwa. **Tidak ada `rules.json` yang bisa menutup ini**:
+HP pengirim tidak pernah tahu nomor rekening tujuan, jadi pasangannya harus
+ditebak, dan tebakan di sini merusak angka yang tidak bisa dikembalikan sendiri.
+
+**Tiga jebakan yang sudah kena waktu menulis.** Semuanya ketahuan
+karena tidak ada kompilasi lokal, hanya pemeriksaan bentuk:
+
+1. **Orphaned brace blok.** Mengedit penjelasan panjang di tengah file
+   menyisakan `}` dan `}` yang menggantung di akhir `NotifService.kt` dan
+   `Config.kt`. Keduanya kurung kurungnya tidak seimbang. Perhatikan jumlah
+   `{`/`}` dengan strip komentar dulu - menghitung mentah salah karena `{` di
+   dalam string dan karakter bukan brace.
+2. **`Paired` tidak punya `dedupKey`, tapi `NotifService` memakainya.** Field
+   itu ada di `Pass` saja. Harus dicek silang: setiap `outcome.X` yang dipakai
+   harus benar-benar ada di deklarasi `data class`-nya.
+3. **Kunci dedup untuk command pasangan harus dibuat sendiri.** Memakai kunci
+   milik salah satu sisi membuat notifikasi sah berikutnya yang kebetulan punya
+   kunci sama dianggap duplikat. `Sink.pairKey` menggabungkan dua kunci. Bentuknya
+   tetap `ibanknotif:v1:<64 hex>` - kalau tidak, `claim_dedup_key` di
+   `telegram.php` mengembalikan false, webhook menjawab "deduplicated" lalu
+   **keluar tanpa mencatat apa pun**. Bentuk yang salah berarti transaksi hilang
+   diam-diam, jadi bentuknya dikunci test.
+
+**Verifikasi.** Environment ini tidak punya JDK maupun Android SDK, jadi
+`./gradlew` tidak bisa dijalankan. Yang dilakukan: `Pairer.kt` dan `PairConfig`
+diport ke Python lalu 15 kasus dijalankan (pasangan benar, urutan terbalik,
+sisi luar tidak hilang, bank sama ditolak, fee terlalu besar ditolak, `in > out`
+ditolak, di luar jendela ditolak, satu sisi tidak dipakai dua kali, `pairs`
+tidak hilang saat round-trip JSON, nilai di luar batas memakai default) -
+semua lulus. `RuleValidator.validateAll` atas `rules.json` versi 4 juga lulus.
+E2E dengan tiga notifikasi asli: dua baris lama berubah jadi satu
+`/pindahin bca bri.ibu 3500351`. **Bentuk, bukan kebenaran kompilasi** -
+`./gradlew testDebugUnitTest` tetap harus jalan di mesin yang punya SDK, dan
+hasilnya harus dilaporkan apa adanya.
+
+**Belum ditutup.** `Gemini.kt` masih menyuruh AI memakai `bri.ibu` untuk notif
+tanpa rekening, dan masih menyebut `3508 = bri.vidha` (5L). AI yang menulis
+aturan untuk kasus antar-bank ini akan membuat rule bogus, karena kasus itu memang
+tidak bisa diekspresikan sebagai aturan. `prompt.txt` di server perlu
+ditegaskan lebih dulu.
+
+### Q. Biaya Admin Transfer Antar HP Terlihat di Rekap (2026-09-29)
+
+Lanjutan 5P, untuk kasus yang Pairer **tidak** bisa tangani: transfer dari HP
+satu ke rekening di HP lain. Sisi keluar dan sisi masuk tiba di perangkat
+berbeda, jadi tidak pernah bertemu, dan `/pindahin` tidak pernah terbentuk.
+
+**Yang hilang, dan itu bukan saldo.** Sisi `out` dan `in` sama-sama benar, jadi
+`Tabungan All Time` tidak berubah. Yang hilang ada di baris rekap
+`Pindah Rek ... (Biaya Adm : ...)`: `total_pindahout` dan `total_pindahin`
+hanya menghitung `pinout`/`pinin`, dan transfer antar HP tidak pernah jadi
+keduanya. Jadi fee admin 351 itu **terpotong dari saldo tapi tidak pernah
+tampil sebagai biaya di mana pun** - hilang dari catatan.
+
+**Perbaikannya di `telegram.php`, jalur baca saja.** Di dalam loop `/tabtotal`,
+baris `out` dan `in` dikumpulkan ke `$rows_out` dan `$rows_in`. Setelah loop,
+pasangan dicari dan **hanya ditampilkan** sebagai baris baru:
+
+```
+Transfer antar HP (terdeteksi dari dua baris, tidak diubah): Rp. 3.500.000 (Biaya Adm : 351)
+  - bca -> bri.ibu : 3.500.351 (biaya 351)
+```
+
+**Kenapa tidak sekalian mengubah barisnya.** Membership yang lebih rapi
+(`link_id`, atau mengubah tipe jadi `pinout`/`pinin`) kedengarannya lebih
+benar, tapi justru **berbahaya**: memindahkan `in` dan `out` keluar dari
+`total_in`/`total_out` akan mengubah angka **Mutasi** dan **Tabungan All Time**,
+dan kedua angka itulah yang dipakai untuk melihat saldo. Menyesuaikan
+klasifikasi lewat tebakan waktu berarti mengubah angka uang yang sudah benar.
+Prinsipnya sama seperti di bagian 7: kalau "diam" salah klasifikasi, yang paling
+parah bukan angkanya salah tampil, tapi angkanya berubah tanpa jejak.
+
+Konsekuensinya disengaja: kalau heuristik ini salah tebak, yang salah hanya
+satu baris tampilan, dan tidak ada data yang tersentuh. Blok baru tidak
+memuat satu pun `INSERT`, `UPDATE`, `DELETE`, `querydb`, atau
+`begin_transaction` - sudah diverifikasi.
+
+Syarat pemasangan sama seperti versi app: prefix bank berbeda, tanggal sama,
+`in <= out`, dan `out - in <= 1000`. `$taken_in` +
+`break` supaya satu baris tidak dipakai dua kali.
+
+**Verifikasi.** Environment ini tidak punya PHP, jadi `php -l` dijalankan di
+container `php:8.2-cli` (podman): **No syntax errors detected**. Karena
+interpreter-nya benar-benar ada, logika pairing-nya bukan lagi ports
+ke bahasa lain - 15 kasus dijalankan dengan PHP sungguhan: pasangan Flip
+sungguhan (nominal 3.500.000, fee 351), bank sama ditolak, selisih 500.000
+ditolak, dana masuk dari luar tidak terpasang, beda tanggal ditolak, satu
+sisi tidak dipakai dua kali, dua transfer terpisah di hari sama (nominal
+4.000.000, fee 751), `in > out` ditolak, dan `bca.ayah` -> `bri.ibu`
+terdeteksi karena yang dibandingkan prefix bank, bukan nama akun penuh.
+Semuanya lulus. Sidinya juga di-render dengan data satu bulan tiruan untuk
+memastikan `total_in`/`total_out` tetap 4.250.000/4.000.351 - tidak berubah
+satu rupiah pun.
+
+**Kenapa `PAIR_FEE_MAX=1000` ditulis langsung di PHP, bukan diambil dari
+`rules.json`.** Nilainya harus sama dengan `feeMax` di app, kalau tidak dua
+sisi bisa menampilkan angka fee yang berbeda untuk transfer yang sama. Dua
+tempat yang harus disamakan manual adalah harga yang murah sekarang dan
+besarIGHTS yang rusak nanti - kalau nanti fee wirklich berbeda per bank,
+barulah dipisah ke config bersama.
+
+**Deploy.** Backup di server `telegram.php.bak-20260929-123525`, lalu scp.
+md5 sebelum `b814a20f` (versi 5O, `PAIR_FEE_MAX` = 0) -> sesudah
+`59bbf754`. `php -l` di server **No syntax errors detected** (PHP 8.2.32),
+`grep -c PAIR_FEE_MAX` = 2, dan `sed -n "/PAIR_FEE_MAX=/,/Mutasi/p" | grep -c
+"INSERT\|UPDATE\|DELETE\|querydb"` = **0**. Commit `ca2b7565` di repo
+`omarifs/telegram`, sudah dipush ke `main`.
+
+**Uji terhadap data DB asli, read-only.** 400 baris terakhir
+(`out=200 in=122 pinout=38 pinin=40`) menghasilkan 4 pasangan:
+
+```
+bca  -> bri ibu : 3.500.351 (biaya 351) pada 2026-09-29
+bca  -> mandiri : 100.000  (biaya   0) pada 2026-04-06
+bri ibu -> bca  : 100.000  (biaya   0) pada 2026-09-22
+briibu  -> bca  : 100.000  (biaya 148) pada 2026-09-03
+```
+
+Yang pertama **persis transfer Flip dari tangkapan layar 29/09** - terdeteksi,
+fee 351, benar. Pasangan bank sama: 0. Skrip uji hanya `SELECT` dan tidak
+memanggil `send()`, jadi tidak ada pesan ke Telegram dan tidak ada data yang
+berubah. File sementara di server sudah dihapus.
+
+**Dua pasangan berbiaya 0 perlu diwaspadai, dan itu memang keterbatasan yang
+sudah dijelaskan di atas.** Nominal bulat 100.000 di dua bank pada hari yang sama
+adalah pola yang wajar terjadi tanpa hubungannya juga, jadi dua baris itu bisa
+saja pasangan yang salah. Yang mereda: keduanya cuma baris tampilan, saldo
+tidak tersentuh. Kalau nanti terlihat mengganggu, persempit syaratnya -
+misalnya wajib selisih fee antara 1 dan 1000 supaya nominal pas dihapus dari
+kandidat.
+
+**Nama akun di data sudah korup dari sebelumnya** (`bri ibu`, `briibu`,
+`brividha`) - itu luka lama dari 5L, bukan efek perubahan ini. Prefix bank-nya
+masih terbaca benar, jadi pairing tetap berfungsi, tapi nama yang tampil perlu
+dibersihkan terpisah kalau mau rapi.
+
+
+**Batasnya, jujur.** Dua transfer antar HP dengan selisih nominal di bawah
+1.000 pada hari yang sama bisa saling tertukar, dan yang tertukar hanya baris
+tampilan. Saldo tidak tersentuh. Menghilangkan itu butuh identitas transaksi
+yang dibagi dua perangkat, dan dua perangkat tidak berbagi state.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 

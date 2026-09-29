@@ -23,6 +23,25 @@ object Sink {
         return "ibanknotif:v1:" + digest.joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Kunci untuk satu `/pindahin` yang disusun [Pairer] dari DUA notifikasi.
+     *
+     * Bentuknya tetap `ibanknotif:v1:` + 64 hex, jadi lolos penyaring
+     * `claim_dedup_key` di `telegram.php`. Kalau tidak, webhook menjawab
+     * `deduplicated` dan keluar tanpa mencatat apa pun - jadi kunci yang salah
+     * bentuk berarti transaksi hilang diam-diam.
+     *
+     * Isinya dua kunci sisi digabung, bukan satu: memakai kunci milik salah satu
+     * sisi akan membuat notifikasi sah yang kebetulan memakai kunci itu
+     * dianggap duplikat oleh server.
+     */
+    fun pairKey(keyOut: String?, keyIn: String?): String? {
+        if (keyOut == null || keyIn == null) return null
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("pair1|$keyOut|$keyIn".toByteArray())
+        return "ibanknotif:v1:" + digest.joinToString("") { "%02x".format(it) }
+    }
+
     fun send(ctx: Context, cmd: String, dedupKey: String? = null) {
         synchronized(queue) {
             queue.add(Triple(ctx, cmd, dedupKey))

@@ -1,10 +1,15 @@
 {
-  "version": 3,
+  "version": 4,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
   },
   "knownIds": ["bri.ibu", "bri.vidha", "bca", "mandiri"],
+  "pairs": {
+    "enabled": true,
+    "windowSec": 300,
+    "feeMax": 1000
+  },
   "rules": [
     {
       "id": "bri-pindahin-antar-rekening-sendiri",

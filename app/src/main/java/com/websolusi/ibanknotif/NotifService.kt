@@ -1,6 +1,8 @@
 package com.websolusi.ibanknotif
 
 import android.app.Notification
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -23,11 +25,18 @@ class NotifService : NotificationListenerService() {
 
     @Volatile private var connected = false
 
+    /** Penjadwalan pembuangan sisi [Pairer] yang sudah lewat jendela. */
+    private val flushHandler = Handler(Looper.getMainLooper())
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         instance = this
         connected = true
         Config.appendLog(this, "SERVICE CONNECTED")
+        // Sisi [Pairer] yang tertahan sebelum proses mati lagi: kalau jendelanya
+        // sudah lewat, langsung dikirim. Proses yang mati sebelum penjadwalan
+        // berjalan akan meninggalkan sisi menggantung di sini.
+        flushHandler.postDelayed(flushRunnable, 2000L)
         // Catch-up: proses notif bank aktif yang tertinggal saat service suspend.
         Thread {
             val n = scanActiveNotifications()
@@ -108,7 +117,7 @@ class NotifService : NotificationListenerService() {
         if (learned != null && !learned.contains("{amount}") && RuleEngine.isSendable(learned, rules.knownIds)) {
             Config.appendLog(this, "AUTO-SEND (LEARNED): $learned")
             Config.markProcessed(this, *newKeys)
-            Sink.send(this, learned, dedupKey)
+            submit(learned, dedupKey, postTime, rules.pairs)
             return
         }
 
@@ -127,7 +136,75 @@ class NotifService : NotificationListenerService() {
         val out = decision.outcome
         Config.appendLog(this, "AUTO-SEND [${out.ruleId}]: ${out.command}")
         Config.markProcessed(this, *newKeys)
-        Sink.send(this, out.command, dedupKey)
+        submit(out.command, dedupKey, postTime, rules.pairs)
+    }
+
+    /**
+     * Titik temu semua hasil klasifikasi, baik dari template belajar maupun dari
+     * aturan. Keduanya sudah lolos [RuleEngine.isSendable] sebelum sampai sini,
+     * jadi id yang dikirim selalu terdaftar.
+     *
+     * Command belum tentu langsung dikirim. [Pairer] menahan sisi `tabin` dan
+     * `tabout` sebentar karena transfer antar bank memunculkan dua notifikasi
+     * terpisah. Kalau pasangannya datang, keduanya jadi satu `/pindahin`. Kalau
+     * tidak, sisanya dikirim apa adanya setelah jendela waktu habis - jadi
+     * kegagalan pairing hanya menunda, tidak menghilangkan.
+     */
+    private fun submit(command: String, dedupKey: String?, postTime: Long, cfg: PairConfig) {
+        if (!cfg.enabled) {
+            send(command, dedupKey)
+            return
+        }
+        val buffer = Config.loadPending(this)
+        when (val outcome = Pairer.feed(command, dedupKey, postTime, cfg, buffer)) {
+            is Pairer.Outcome.Pass -> send(outcome.command, outcome.dedupKey)
+            is Pairer.Outcome.Held -> {
+                Config.savePending(this, buffer)
+                Config.appendLog(this, "TAHAN (menunggu sisi lain): ${outcome.pending.command}")
+                scheduleFlush(cfg)
+            }
+            is Pairer.Outcome.Paired -> {
+                Config.savePending(this, buffer)
+                Config.appendLog(
+                    this,
+                    "PASANG: ${outcome.out.command} + ${outcome.inSide.command} -> ${outcome.command}"
+                )
+                // Kunci sendiri, bukan milik salah satu sisi: kunci sisi akan
+                // dipakai lagi kalau notifikasi yang sama muncul sekali lagi.
+                send(outcome.command, Sink.pairKey(outcome.out.dedupKey, outcome.inSide.dedupKey))
+            }
+        }
+    }
+
+    private fun send(command: String, dedupKey: String?) = Sink.send(this, command, dedupKey)
+
+    /**
+     * Jadwalkan pembuangan sisi yang sudah lewat jendela.
+     *
+     * Ini bukan sekadar tambahan: tanpa penjadwalan, sisi `tabin` yang sendirian
+     * (dana masuk dari orang luar) tertahan selamanya kalau tidak ada notifikasi
+     * lain yang datang, dan uangnya tidak pernah tercatat.
+     */
+    private fun scheduleFlush(cfg: PairConfig) {
+        flushHandler.removeCallbacks(flushRunnable)
+        flushHandler.postDelayed(flushRunnable, cfg.windowMs + 1000L)
+    }
+
+    private val flushRunnable = Runnable { flushExpired() }
+
+    /** Kirim semua sisi yang sudah lewat jendela dan masih tertahan. */
+    private fun flushExpired() {
+        val cfg = RuleStore.load(this).pairs
+        if (!cfg.enabled) return
+        val buffer = Config.loadPending(this)
+        val stale = Pairer.flushExpired(buffer, System.currentTimeMillis(), cfg)
+        if (stale.isEmpty()) return
+        buffer.removeAll(stale.toSet())
+        Config.savePending(this, buffer)
+        for (p in stale) {
+            Config.appendLog(this, "FLUSH (tidak berpasangan): ${p.command}")
+            send(p.command, p.dedupKey)
+        }
     }
 
     private fun detectBankFromTitle(title: String): String? {

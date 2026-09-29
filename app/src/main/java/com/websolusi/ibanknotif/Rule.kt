@@ -55,11 +55,55 @@ data class Rule(
     }
 }
 
+/**
+ * Parameter untuk [Pairer], tetap data supaya bisa diubah dari server tanpa build.
+ *
+ * Yang diatur adalah JENDELA WAKTU dan TOLERANSI FEE, bukan algoritme. Pasangan
+ * hanya boleh terjadi kalau kedua sisi rekening sendiri, bank berbeda, arah
+ * berlawanan, dan selisih nominal sebesar fee admin. Kalau salah satu syarat
+ * tidak terpenuhi, tidak ada pasangan - kedua sisinya dikirim apa adanya.
+ */
+data class PairConfig(
+    val enabled: Boolean = false,
+    /** Berapa lama satu sisi ditahan mencari pasangannya, dalam detik. */
+    val windowSec: Int = 300,
+    /** Selisih nominal yang masih dibaca sebagai fee admin, dalam rupiah. */
+    val feeMax: Int = 1000
+) {
+    val windowMs: Long get() = windowSec.toLong() * 1000L
+
+    companion object {
+        /**
+         * Batas atas yang aman. Nilai di luar ini berarti file server rusak atau
+         * salah kirim, dan penolakan lebih baik daripada menahan notifikasi bank
+         * tanpa batas.
+         */
+        const val MAX_WINDOW_SEC = 3600
+        const val MAX_FEE = 100_000
+        fun fromJson(o: JSONObject?): PairConfig {
+            if (o == null) return PairConfig()
+            fun bound(raw: Int, max: Int, fallback: Int) = if (raw in 1..max) raw else fallback
+            return PairConfig(
+                enabled = o.optBoolean("enabled", false),
+                windowSec = bound(o.optInt("windowSec", 300), MAX_WINDOW_SEC, 300),
+                feeMax = bound(o.optInt("feeMax", 1000), MAX_FEE, 1000)
+            )
+        }
+
+        fun toJson(c: PairConfig) = JSONObject().apply {
+            put("enabled", c.enabled)
+            put("windowSec", c.windowSec)
+            put("feeMax", c.feeMax)
+        }
+    }
+}
+
 /** Rekening keluarga -> id akun. Bagian dari data, bukan kode. */
 data class RuleSet(
     val version: Int,
     val accounts: Map<String, String>,
     val rules: List<Rule>,
+    val pairs: PairConfig = PairConfig(),
     /**
      * Id akun yang boleh muncul di `command`. Berasal dari `knownIds` di
      * `rules.json`, digabung dengan [KNOWN_IDS] bawaan. Server boleh menambah,
@@ -215,6 +259,7 @@ data class RuleSet(
                 version = o.optInt("version", 1),
                 accounts = if (acc.isEmpty()) defaultAccounts() else acc,
                 rules = rules,
+                pairs = PairConfig.fromJson(o.optJSONObject("pairs")),
                 knownIds = KNOWN_IDS + ids.filter { it.matches(ID_RE) }
             )
         } catch (e: Exception) {
@@ -228,6 +273,7 @@ data class RuleSet(
             // Wajib ditulis: dialog Aturan menyalin JSON lewat model ini, jadi
             // field yang tidak dimodelkan akan hilang diam-diam saat diedit manual.
             o.put("knownIds", JSONArray(set.knownIds.sorted()))
+            o.put("pairs", PairConfig.toJson(set.pairs))
             val arr = JSONArray()
             set.rules.forEach { r ->
                 arr.put(JSONObject().apply {

@@ -2,6 +2,8 @@ package com.websolusi.ibanknotif
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
 
 object Config {
     private const val PREF = "ibanknotif"
@@ -12,6 +14,7 @@ object Config {
     private const val KEY_BRI = "bank_bri"
     private const val KEY_LOG = "log"
     private const val KEY_PROCESSED_KEYS = "processed_keys"
+    private const val KEY_PENDING_PAIRS = "pending_pairs"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
@@ -86,7 +89,7 @@ object Config {
      * apply() dipakai, panggilan berikutnya bisa membaca daftar lama dan
      * menimpa key yang baru saja ditulis -> guard anti dobel jadi bocor.
      */
-    fun markProcessed(ctx: Context, vararg keys: String) {
+    fun markProcessed(ctx: Context, var *keys: String) {
         if (keys.isEmpty()) return
         val p = prefs(ctx)
         synchronized(p) {
@@ -96,5 +99,58 @@ object Config {
             val trimmed = if (current.size > 200) current.toList().takeLast(200).toSet() else current
             p.edit().putStringSet(KEY_PROCESSED_KEYS, trimmed).commit()
         }
+    }
+
+    // ---- Buffer [Pairer] ----
+
+    /**
+     * Sisi transfer yang sedang ditahan mencari pasangannya, disimpan ke disk.
+     *
+     * Buffernya in-memory di [Pairer], tapi Android bisa mati kapan saja dan
+     * listener notifikasi sering dilepas di belakang layar oleh MIUI. Kalau sisi
+     * yang tertahan hilang bersama proses, notifikasi bank itu hilang permanen -
+     * lebih buruk dari bug yang [Pairer] perbaiki. Yang disimpan hanya string dan
+     * angka, tidak ada objek Android, jadi aman ditulis sinkron di jalur notifikasi.
+     */
+    fun loadPending(ctx: Context): MutableList<Pairer.Pending> {
+        val raw = prefs(ctx).getString(KEY_PENDING_PAIRS, null) ?: return mutableListOf()
+        val out = mutableListOf<Pairer.Pending>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(
+                    Pairer.Pending(
+                        command = o.getString("command"),
+                        accountId = o.getString("accountId"),
+                        amount = o.getLong("amount"),
+                        direction = Pairer.Direction.valueOf(o.getString("direction")),
+                        atMs = o.getLong("atMs"),
+                        dedupKey = o.optString("dedupKey").ifBlank { null }
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            // Buffer rusak tidak boleh menggagalkan seluruh jalur notifikasi.
+            prefs(ctx).edit().remove(KEY_PENDING_PAIRS).commit()
+            return mutableListOf()
+        }
+        return out
+    }
+
+    fun savePending(ctx: Context, pending: List<Pairer.Pending>) {
+        val arr = JSONArray()
+        pending.forEach { p ->
+            arr.put(JSONObject().apply {
+                put("command", p.command)
+                put("accountId", p.accountId)
+                put("amount", p.amount)
+                put("direction", p.direction.name)
+                put("atMs", p.atMs)
+                put("dedupKey", p.dedupKey ?: "")
+            })
+        }
+        // commit() sinkron: buffer baru ditulis sebelum proses bisa mati lagi.
+        prefs(ctx).edit().putString(KEY_PENDING_PAIRS, arr.toString()).commit()
     }
 }

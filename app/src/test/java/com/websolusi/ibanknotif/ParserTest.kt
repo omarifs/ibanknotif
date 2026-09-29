@@ -574,3 +574,194 @@ class PatternStoreTest {
         assertEquals("8533", Parser.extractSource("dari rekening 8533 " + "x".repeat(500)))
     }
 }
+
+/**
+ * [Pairer] - dua notifikasi yang satu peristiwa jadi satu `/pindahin`.
+ *
+ * Fixture-nya transkrip notifikasi sungguhan: transfer BCA -> BRI lewat Flip,
+ * yang memunculkan "You spent IDR 3.500.351" di myBCA dan "Dana Rp3.500.000
+ * masuk ke rekening ...8533" di BRImo. Selisih 351 adalah fee admin.
+ */
+class PairerTest {
+
+    private val cfg = PairConfig(enabled = true, windowSec = 300, feeMax = 1000)
+    private val t0 = 1_757_000_000_000L
+
+    /** myBCA, sisi keluar. Rekening tujuan tidak disebut sama sekali. */
+    private val bcaKeluar = "/tabout bca 3500351"
+    /** BRImo, sisi masuk. Rekening asal tidak disebut sama sekali. */
+    private val briMasuk = "/tabin bri.ibu 3500000"
+
+    private fun feed(cmd: String, at: Long, buffer: MutableList<Pairer.Pending>) =
+        Pairer.feed(cmd, "dk-$cmd", at, cfg, buffer)
+
+    @Test
+    fun `transfer antar bank jadi satu pindahin`() {
+        val buffer = mutableListOf<Pairer.Pending>()
+        val first = feed(bcaKeluar, t0, buffer)
+        assertTrue("sisi keluar harus ditahan dulu", first is Pairer.Outcome.Held)
+
+        val second = feed(briMasuk, t0 + 4_000, buffer)
+        assertTrue("sisi masuk harus menutup pasangan", second is Pairer.Outcome.Paired)
+        val paired = second as Pairer.Outcome.Paired
+        // Nominal yang dikirim adalah sisi KELUAR, karena itu yang benar-benar
+        // didebet BCA. Sisi masuk ditebak webhook lewat pembulatan ke ribuan.
+        assertEquals("/pindahin bca bri.ibu 3500351", paired.command)
+        assertEquals("bca", paired.out.accountId)
+        assertEquals("bri.ibu", paired.inSide.accountId)
+        assertTrue("buffer harus kosong setelah berpasangan", buffer.isEmpty())
+    }
+
+    @Test
+    fun `urutan terbalik tetap berpasangan`() {
+        // Notifikasi bisa tiba dalam urutan mana saja; hasilnya harus sama.
+        val buffer = mutableListOf<Pairer.Pending>()
+        assertTrue(feed(briMasuk, t0, buffer) is Pairer.Outcome.Held)
+        val second = feed(bcaKeluar, t0 + 2_000, buffer)
+        assertEquals("/pindahin bca bri.ibu 3500351", (second as Pairer.Outcome.Paired).command)
+    }
+
+    @Test
+    fun `dana masuk dari luar ditahan lalu dikirim apa adanya`() {
+        // Tidak ada sisi keluar yang akan datang, jadi tidak boleh hilang.
+        val buffer = mutableListOf<Pairer.Pending>()
+        val held = feed("/tabin bri.ibu 750000", t0, buffer)
+        assertTrue(held is Pairer.Outcome.Held)
+        assertEquals(1, buffer.size)
+
+        assertTrue("belum expired", Pairer.flushExpired(buffer, t0 + 10_000, cfg).isEmpty())
+        val flushed = Pairer.flushExpired(buffer, t0 + cfg.windowMs + 1, cfg)
+        assertEquals(1, flushed.size)
+        assertEquals("/tabin bri.ibu 750000", flushed[0].command)
+    }
+
+    @Test
+    fun `transfer antar rekening di bank sama tidak berpasangan`() {
+        // Tanpa syarat "bank beda", transfer internal ikut terpair dan
+        // nominalnya jadi tidak bulat - kerusakan yang tercatat di log 5O.
+        val buffer = mutableListOf<Pairer.Pending>()
+        assertTrue(feed("/tabout bri.vidha 100000", t0, buffer) is Pairer.Outcome.Held)
+        val second = feed("/tabin bri.ibu 100000", t0 + 1_000, buffer)
+        assertTrue(
+            "bank sama harus ditolak",
+            second is Pairer.Outcome.Held
+        )
+        assertEquals("/tabin bri.ibu 100000", (second as Pairer.Outcome.Held).pending.command)
+    }
+
+    @Test
+    fun `selisih terlalu besar tidak dianggap fee`() {
+        val buffer = mutableListOf<Pairer.Pending>()
+        feed("/tabout bca 3500000", t0, buffer)
+        val second = feed("/tabin bri.ibu 3000000", t0 + 1_000, buffer)
+        assertTrue("beda 500.000 bukan fee", second is Pairer.Outcome.Held)
+    }
+
+    @Test
+    fun `sisi masuk lebih besar dari sisi keluar ditolak`() {
+        val buffer = mutableListOf<Pairer.Pending>()
+        feed("/tabout bca 3500000", t0, buffer)
+        val second = feed("/tabin bri.ibu 3500351", t0 + 1_000, buffer)
+        assertTrue("in > out tidak mungkin terjadi", second is Pairer.Outcome.Held)
+    }
+
+    @Test
+    fun `di luar jendela waktu tidak berpasangan`() {
+        val buffer = mutableListOf<Pairer.Pending>()
+        feed("/tabout bca 3500351", t0, buffer)
+        val second = feed("/tabin bri.ibu 3500000", t0 + cfg.windowMs + 1, buffer)
+        assertTrue("jarak waktu lewat jendela", second is Pairer.Outcome.Held)
+    }
+
+    @Test
+    fun `pindahin yang sudah utuh tidak ikut ditahan`() {
+        val buffer = mutableListOf<Pairer.Pending>()
+        val out = Pairer.feed("/pindahin bri.ibu bri.vidha 100000", "dk", t0, cfg, buffer)
+        assertTrue(out is Pairer.Outcome.Pass)
+        assertTrue(buffer.isEmpty())
+    }
+
+    @Test
+    fun `pairs mati berarti tidak ada yang ditahan`() {
+        val off = PairConfig(enabled = false)
+        val buffer = mutableListOf<Pairer.Pending>()
+        val out = Pairer.feed(bcaKeluar, "dk", t0, off, buffer)
+        assertTrue(out is Pairer.Outcome.Pass)
+        assertTrue(buffer.isEmpty())
+    }
+
+    @Test
+    fun `satu sisi tidak dipakai dua kali`() {
+        // Dua dana masuk berturut-turut, satu dana keluar: hanya yang pertama
+        // boleh berpasangan. Kalau tidak, satu sisi jadi dua /pindahin.
+        val buffer = mutableListOf<Pairer.Pending>()
+        feed("/tabout bca 3500351", t0, buffer)
+        assertTrue(feed("/tabin bri.ibu 3500000", t0 + 1_000, buffer) is Pairer.Outcome.Paired)
+        val third = feed("/tabin bri.ibu 3500000", t0 + 2_000, buffer)
+        assertTrue("sudah berpasangan, sisanya ditahan", third is Pairer.Outcome.Held)
+    }
+
+    // ---- Parameter data: nilai di luar batas ditolak, bukan dipercaya ----
+
+    @Test
+    fun `window dan fee di luar batas memakai nilai default`() {
+        val nakal = PairConfig.fromJson(
+            org.json.JSONObject("""{"enabled":true,"windowSec":999999,"feeMax":-5}""")
+        )
+        assertEquals(300, nakal.windowSec)
+        assertEquals(1000, nakal.feeMax)
+    }
+
+    @Test
+    fun `pairs tanpa blok akan mati`() {
+        // APK lama, atau rules.json yang belum punya blok ini: harus mati,
+        // bukan memakai angka yang tidak disepakati.
+        assertFalse(PairConfig.fromJson(null).enabled)
+    }
+
+    @Test
+    fun `pairs tidak hilang saat json dibolak balik lewat editor`() {
+        // Dialog Aturan menyalin JSON lewat RuleSet.toJson. Kalau `pairs` tidak
+        // ikut ditulis, parameter ini hilang diam-diam setiap kali aturan diedit.
+        val asli = RuleSet.fromJson("""{"version":1,"accounts":{},"rules":[],
+            "pairs":{"enabled":true,"windowSec":45,"feeMax":777}}""")!!
+        val pulih = RuleSet.fromJson(RuleSet.toJson(asli))!!
+        assertTrue(pulih.pairs.enabled)
+        assertEquals(45, pulih.pairs.windowSec)
+        assertEquals(777, pulih.pairs.feeMax)
+    }
+
+    @Test
+    fun `rules json bawaan punya pairs aktif`() {
+        val f = File("src/main/assets/rules.json")
+        assertTrue("assets/rules.json tidak ditemukan", f.exists())
+        val set = RuleSet.fromJson(f.readText())
+            ?: throw AssertionError("assets/rules.json tidak bisa di-parse")
+        assertTrue("pairing harus aktif di bawaan", set.pairs.enabled)
+    }
+
+    // ---- Bentuk kunci yang dipakai server ----
+
+    @Test
+    fun `kunci pasangan sesuai bentuk yang diterima server`() {
+        // `telegram.php` menolak kunci yang tidak berbentuk
+        // `ibanknotif:v1:<64 hex>`, lalu menjawab "deduplicated" dan KELUAR tanpa
+        // mencatat apa pun. Bentuk yang salah berarti transaksi hilang diam-diam,
+        // jadi bentuknya dikunci di sini.
+        val pola = Regex("""^ibanknotif:v1:[a-f0-9]{64}$""")
+        val ko = Sink.dedupKey("bca", "com.bca.mybca", 1757000000L, "You spent IDR 3,500,351.00")
+        val ki = Sink.dedupKey("bri", "id.co.bri.brimo", 1757000004L, "Dana Rp3.500.000 masuk")
+        val kp = Sink.pairKey(ko, ki)
+        assertNotNull("kunci pasangan tidak boleh null", kp)
+        assertTrue("kunci pasangan ditolak server: $kp", pola.matches(kp!!))
+        assertNotEquals("kunci pasangan harus beda dari kedua sisi", ko, kp)
+        assertNotEquals(ki, kp)
+    }
+
+    @Test
+    fun `kunci pasangan kosong kalau salah satu sisi tidak punya kunci`() {
+        val ko = Sink.dedupKey("bca", "com.bca.mybca", 1757000000L, "x")
+        assertNull(Sink.pairKey(ko, null))
+        assertNull(Sink.pairKey(null, ko))
+    }
+}
