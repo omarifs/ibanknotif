@@ -817,6 +817,52 @@ dibersihkan terpisah kalau mau rapi.
 tampilan. Saldo tidak tersentuh. Menghilangkan itu butuh identitas transaksi
 yang dibagi dua perangkat, dan dua perangkat tidak berbagi state.
 
+### R. Nama Rekening Pecah dan Baris Sampah di `tele_tabungan` (2026-09-29)
+
+Temuan dari audit read-only, **bukan** efek perubahan 5P dan 5Q. Kebetulan
+audit ini menemukan data yang sudah rusak dari versi app lama.
+
+**Kolom `nama` berisi 8 nilai untuk rekening yang hanya ada 4:**
+
+| `nama` | baris | saldo berjalan |
+| :--- | ---: | ---: |
+| `bca` | 205 | −10.848.833 |
+| `bcaarif` | 3 | +11.490.115 |
+| `bri ibu` | 109 | +5.977.906 |
+| `briibu` | 27 | +2.824.750 |
+| `bri vidha` | 70 | +74.209.300 |
+| `brividha` | 42 | −24.020.274 |
+| `mandiri` | 17 | +103.488 |
+| `normalisasi` | 4 | −410.422 |
+| `tujuan rek` | 1 | +26.000 |
+
+Akibatnya saldo per rekening sangat menyesatkan: `bri vidha` tercatat +74 juta
+sementara `brividha` −24 juta, padahal itu rekening yang sama.
+
+**Yang diperbaiki: 5 baris sampah** (`normalisasi` ×4, `tujuan rek` ×1) — sisa
+`Parser.toCommand` versi lama yang dulu menulis nama akun dari teks mentah.
+Query `Tabungan All Time` menjumlahkan semua baris tanpa memfilter nama, jadi 5
+baris itu membuat angka yang dilaporkan meleset **−384.422**. Setelah dihapus:
+478 → 473 baris, `Tabungan All Time` 57.770.075.
+
+**Yang TIDAK diperbaiki, dan alasannya.** `bri ibu`/`briibu` dan
+`bri vidha`/`brividha` jelas rekening yang sama, tapi menggabungkan keduanya
+menyentuh saldo rekening nyata dan butuh keputusan: apakah `bcaarif` (3 baris,
++11.490.115) rekening terpisah atau salah ketik? Itu tidak bisa ditebak.
+`git log` dan `tele_tabungan` tidak menjawabnya.
+
+**Temuan lebih serius: satu `pinin` yatim.** `pinout` 49 baris, `pinin` 50.
+Dua `pinin` 1.000.000 pada 2026-06-13 18:58 (`bri vidha` id 272 dan `bri ibu`
+id 273) tidak punya pasangan `pinout` - artinya transfer 1 juta itu tercatat
+hanya di sisi penerima. Satu `pinout` 26.000 (id 444, `bri ibu`,
+2026-09-06) juga tanpa pasangan, pasangannya baris `tujuan rek` yang baru
+dihapus. Kemungkinan besar hilang bukan karena saldo, tapi karena
+`/pindahin` lama yang gagal separuh.
+
+**Yang tidak boleh dilakukan tanpa keputusan:** menambah baris `pinout` 1 juta
+secara manual. Itu berarti mengarang transaksi, dan seperti biasa, angka yang
+dibuat-buat lebih sulit dikoreksi daripada yang hilang.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 
