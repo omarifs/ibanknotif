@@ -965,7 +965,35 @@ ulang → **MASUK**. Selain itu `DeliveryConfig`/`RuntimeConfig` disimulasikan
 (21 pemeriksaan): default, nilai dari server, angka mustahil ditolak,
 round-trip `toJson`/`fromJson` stabil, dan file v6 diterima validator APK lama.
 **Bentuk, bukan kebenaran kompilasi** - `./gradlew testDebugUnitTest` wajib
-jalan di mesin berseku.
+jalan di mesin yang punya SDK.
+
+**Langkah WAJIB setelah memasang 1.0.4, urut dan tidak boleh dilewat.**
+
+Template hasil belajar dievaluasi **lebih dulu** daripada aturan:
+
+```
+NotifService.kt:114  Learning.match(bank, fullText, ...)   <- lebih dulu
+NotifService.kt:129  RuleEngine.decide(parsed, rules)      <- belakangan
+```
+
+Kalau `learned_templates` masih berisi template dari sebelum 1.0.4, template
+itu **menang** dan seluruh perbaikan di 5S tidak akan terlihat sama sekali -
+gejalanya `AUTO-SEND (LEARNED): ...` di log, bukan `AUTO-SEND [nama-aturan]`.
+Jadi:
+
+1. Tekan **Bersihkan Hasil Belajar** di **kedua HP**. Bukan opsional, dan
+   tidak bisa dicicil: template yang sudah ada di HP Vidha pun masih aktif
+   di sana.
+2. Buka aplikasi setelah itu, supaya `rules.json` v6 ikut ter-tarik
+   ( otomatis saat app dibuka).
+3. Baru tes satu transfer dan baca lognya. Kalau baris pertama yang muncul
+   masih `AUTO-SEND (LEARNED)`, berarti langkah 1 belum benar-benar
+   membersihkan.
+
+Kalau ternyata ada template yang memang sengaja disimpan - misalnya hasil
+koreksi manual yang tidak bisa diekspresikan sebagai aturan - jangan dihapus
+begitu saja. Catat dulu isinya, karena setelah dihapus tidak ada tempat lain
+untuk menuliskannya.
 
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
@@ -1098,8 +1126,22 @@ Satu peristiwa bisa jadi beberapa notifikasi.
 Tanda tangan harus dihitung **sebelum** jalur mana pun, supaya jalur lain
 tidak bisa mem-bypass-nya.
 
-### 7.8 Perhatikan async saat menandai "sudah diproses"
+**Lapisan ketiga yang paling sering luput: template hasil belajar.**
+`Learning.match` dievaluasi **sebelum** `RuleEngine.decide`
+(`NotifService.kt:114` vs `:129`), jadi template yang tersimpan -
+dari klasifikasi yang sudah usang - **menang atas** aturan yang baru
+diperbaiki. Gejalanya mudah dilihat: di log, barisnya `AUTO-SEND (LEARNED): ...`
+bukan `AUTO-SEND [nama-aturan]: ...`.
 
+Aturan main: **setiap kali data di server berubah, wajib tekan "Bersihkan
+Hasil Belajar"** di setiap HP yang memasang aplikasi. Bukan opsional, dan
+tidak bisa dicicil. Kalau Learning dievaluasi pertama, perbaiki klasifikasi
+berarti sia-sia selama template lama masih ada.
+
+Baris `AUTO-SEND (LEARNED)` di log adalah penanda yang harus dicek setelah
+setiap perubahan data: kalau masih muncul, perbaikannya belum masuk.
+
+### 7.8 Perhatikan async saat menandai "sudah diproses"
 Dua panggilan `apply()` berurutan bisa saling menimpa: panggilan kedua
 membaca daftar lama karena yang pertama belum commit, lalu menulis daftar
 lama PLUS key-nya - key yang pertama hilang. Guard anti-duplikat jadi bocor
