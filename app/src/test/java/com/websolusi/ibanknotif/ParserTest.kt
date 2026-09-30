@@ -732,12 +732,23 @@ class PairerTest {
     }
 
     @Test
-    fun `rules json bawaan punya pairs aktif`() {
+    fun `rules json bawaan punya blok pairs yang sengaja mati`() {
         val f = File("src/main/assets/rules.json")
         assertTrue("assets/rules.json tidak ditemukan", f.exists())
         val set = RuleSet.fromJson(f.readText())
             ?: throw AssertionError("assets/rules.json tidak bisa di-parse")
-        assertTrue("pairing harus aktif di bawaan", set.pairs.enabled)
+        // Pairing DIMATIKAN dengan sengaja (rules.json v5, 2026-09-30).
+        // Pairer menahan setiap tabin/tabout, padahal hanya transfer antar bank
+        // yang punya dua sisi notifikasi - jadi transfer masuk dari merchant
+        // (Gopay) ikut tertahan 28 menit sambil menunggu pasangan yang tidak
+        // akan pernah datang. Blok ini sengaja dipertahankan supaya Pairer bisa
+        // dihidupkan lagi dari server tanpa build, tapi TIDAK dipakai dulu.
+        //
+        // Kalau ini diaktifkan, test ini harus ikut diubah - dan alasan
+        // mengaktifkannya harus ditulis di sini, bukan dihapus assertion-nya.
+        assertFalse("pairing harus mati; lihat catatan di atas", set.pairs.enabled)
+        assertEquals(300, set.pairs.windowSec)
+        assertEquals(1000, set.pairs.feeMax)
     }
 
     // ---- Bentuk kunci yang dipakai server ----
