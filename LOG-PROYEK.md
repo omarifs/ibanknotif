@@ -773,7 +773,7 @@ satu rupiah pun.
 `rules.json`.** Nilainya harus sama dengan `feeMax` di app, kalau tidak dua
 sisi bisa menampilkan angka fee yang berbeda untuk transfer yang sama. Dua
 tempat yang harus disamakan manual adalah harga yang murah sekarang dan
-besarIGHTS yang rusak nanti - kalau nanti fee wirklich berbeda per bank,
+perbedaan nilai fee yang rusak nanti - kalau nanti fee memang berbeda per bank,
 barulah dipisah ke config bersama.
 
 **Deploy.** Backup di server `telegram.php.bak-20260929-123525`, lalu scp.
@@ -862,6 +862,110 @@ dihapus. Kemungkinan besar hilang bukan karena saldo, tapi karena
 **Yang tidak boleh dilakukan tanpa keputusan:** menambah baris `pinout` 1 juta
 secara manual. Itu berarti mengarang transaksi, dan seperti biasa, angka yang
 dibuat-buat lebih sulit dikoreksi daripada yang hilang.
+
+### S. Outbox: Notifikasi yang Hilang Tanpa Jejak (2026-09-30)
+
+**Gejala.** Transfer Gopay masuk Rp 69.350, notifikasi myBCA terbaca dan
+klasifikasinya benar (`/tabin bca 69350`), tapi **tidak ada barisnya di
+`tele_tabungan`**. Tidak ada di `tele_notif_dedup` juga.
+
+**Urutan kejadian dari log HP, dibaca kronologis.** `AUTODETECT` → `AUTO-SEND`
+→ `TAHAN` → 28 menit → `SERVICE CONNECTED` → `FLUSH` → **tidak ada baris `POST`
+maupun `ERR`**. Setelah itu, notifikasi yang sama masih ada di shade tapi
+selalu `SKIP (DUPLIKAT)`.
+
+**Akar masalahnya bukan Pairer, tapi urutan dua baris ini:**
+
+```kotlin
+Config.markProcessed(this, *newKeys)   // notifikasi ditandai SUDAH diproses
+submit(...)                            // baru sesudah itu dikirim
+```
+
+Kalau proses mati di antara keduanya, notifikasi hilang **permanen**:
+
+1. `isProcessed` sudah `true`, jadi `scanActiveNotifications()` menyingkirkan
+   di setiap catch-up berikutnya
+2. `dedup_key` sudah diklaim di server, jadi kirim ulang dijawab
+   `deduplicated` lalu `exit()` tanpa `INSERT`
+
+Bug ini **bawaan**, bukan hasil refactor - kode lama juga `markProcessed`
+sebelum `Sink.send`. Yang dilakukan Pairer cuma memperbesar jendelanya: dari
+**mikrodetik** (enqueue → worker → POST dalam ~500ms) jadi **28 menit**,
+sehingga jendela kematian itu jadi besar. Terbukti di DB: `tabin bca` terakhir
+yang masuk 28/09 22:17:28, lalu tidak ada sama sekali - padahal sebelumnya
+rutin tiap 1-2 hari.
+
+**Bukti bahwa `claim_dedup_key` bukan penyebabnya.** Fungsi itu diuji langsung
+di server: kunci baru selalu `TRUE: diklaim`, kunci sama `affected_rows=0`,
+kunci ditolak `FALSE: format kunci`, teks bukan command `FALSE: format teks`.
+Regex-nya juga benar (64 hex lolos, 63/65 hex dan huruf besar ditolak). Fungsi
+ini **sehat** - jangan disalahkan sebagai penyebab.
+
+**Perbaikan (`NotifService.kt` + `Config.kt`, versi 1.0.4).** Urutan dibalik:
+tulis command ke **outbox** disk dulu, baru `markProcessed`, baru kirim. Yang
+tersisa di outbox dikirim ulang setiap aplikasi dibuka. `Sink` antreannya
+memang in-memory, jadi tanpa outbox tidak ada tempat lain untuk menyimpan
+command yang belum tentu sampai.
+
+**Tambahan di `Sink.kt`.** Dua hal yang membuat kehilangan tidak terlihat:
+
+1. **Baca response body.** `POST → 200` selama ini menipu: `telegram.php`
+   menjawab `{"deduplicated":true}` dengan HTTP 200 lalu keluar tanpa
+   menyimpan apa pun. Sekarang dibaca dan dicatat `DITOLAK-DEDUP`.
+2. **Retry** dengan jeda, karena jaringan HP sering putus sesaat.
+
+**Yang tidak diperbaiki, dan alasannya.** `claim_dedup_key` masih keluar
+dengan `exit()` saat kunci sudah ada. Itu **benar** - kunci sama berarti notif
+sama, dan mencatatnya lagi akan menghasilkan dobel catat. Yang berubah cuma
+visibilitasnya: sekarang terlihat di log HP, bukan hilang diam-diam.
+
+### T. Setelan Pengiriman dan Housekeeping Jadi Data (2026-09-30)
+
+Lanjutan 5P dan 5Q: "yang jadi data adalah string, map, daftar" sekarang
+mencakup perilaku pengiriman, bukan cuma klasifikasi.
+
+`rules.json` dapat dua blok, keduanya default-nya **persis sama** dengan
+angka yang dulu tertanam di kode, jadi `rules.json` tanpa blok ini berperilaku
+seperti sebelumnya:
+
+```json
+"delivery": { "maxRetries": 3, "retryDelayMs": 1500, "timeoutMs": 10000, "sendGapMs": 500 },
+"runtime":  { "logLines": 100, "maxProcessedKeys": 200 }
+```
+
+| Setting | Menggantikan | Batas atas |
+| :--- | :--- | :--- |
+| `delivery.maxRetries` | jumlah percobaan kirim | 10 |
+| `delivery.retryDelayMs` | jeda antar percobaan | 60.000 |
+| `delivery.timeoutMs` | timeout koneksi & baca | 60.000 |
+| `delivery.sendGapMs` | jeda antar POST | 60.000 |
+| `runtime.logLines` | jumlah baris log | 1.000 |
+| `runtime.maxProcessedKeys` | jumlah kunci anti-duplikat | 2.000 |
+
+Angka di luar batas **diabaikan dan diganti default**, bukan dipakai -
+`maxRetries: 99999` akan membuat aplikasi tidak bisa dihentikan. Pola `bound()`
+yang sama sudah dipakai `PairConfig` sejak 5P.
+
+**Yang sengaja TIDAK dijadikan data:** `MAX_TEXT` (2.000) dan `MAX_PATTERN`
+(300) di `PatternStore`, plus seluruh algoritme. Batas itu pengaman - mengubahnya
+dari server hanya membuka pintu ke regex yang bisa macet atau ke teks
+yang terlalu panjang. Sama seperti `knownIds` di 5N: daftar boleh ditambah,
+aturan tidak boleh memakainya.
+
+**Aman untuk APK tertua.** `RuleSet.fromJson` hanya membaca `version`,
+`accounts`, `knownIds`, `rules`; `validateAll` hanya iterasi `rules`. Kunci
+asing `pairs`, `delivery`, `runtime` **diabaikan, bukan error** - disimulasikan
+terhadap `rules.json` v6: 14 aturan utuh, id literal tetap `bca` + `mandiri`,
+`accounts` dan `knownIds` tidak berubah. HP vidha tidak membeku.
+
+**Verifikasi.** Alur outbox disimulasikan ulang di Python (22 pemeriksaan,
+semua lulus) termasuk skenario yang persis membuat Gopay hilang:
+proses mati setelah enqueue → outbox masih menyimpan → app dibuka → kirim
+ulang → **MASUK**. Selain itu `DeliveryConfig`/`RuntimeConfig` disimulasikan
+(21 pemeriksaan): default, nilai dari server, angka mustahil ditolak,
+round-trip `toJson`/`fromJson` stabil, dan file v6 diterima validator APK lama.
+**Bentuk, bukan kebenaran kompilasi** - `./gradlew testDebugUnitTest` wajib
+jalan di mesin berseku.
 
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 

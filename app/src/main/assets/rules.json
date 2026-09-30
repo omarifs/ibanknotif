@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
@@ -9,6 +9,16 @@
     "enabled": false,
     "windowSec": 300,
     "feeMax": 1000
+  },
+  "delivery": {
+    "maxRetries": 3,
+    "retryDelayMs": 1500,
+    "timeoutMs": 10000,
+    "sendGapMs": 500
+  },
+  "runtime": {
+    "logLines": 100,
+    "maxProcessedKeys": 200
   },
   "rules": [
     {

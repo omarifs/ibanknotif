@@ -98,12 +98,92 @@ data class PairConfig(
     }
 }
 
+/**
+ * Cara aplikasi mengirim command ke server. Data, supaya bisa diubah dari
+ * server tanpa build ulang.
+ *
+ * Default-nya persis sama dengan angka yang dulu tertanam di [Sink], jadi
+ * `rules.json` yang belum punya blok ini berperilaku seperti sebelumnya.
+ */
+data class DeliveryConfig(
+    /** Berapa kali mencoba sebelum menyerah. 1 = tanpa retry. */
+    val maxRetries: Int = 3,
+    /** Jeda antar percobaan, milidetik. */
+    val retryDelayMs: Int = 1500,
+    /** Timeout koneksi dan baca HTTP, milidetik. */
+    val timeoutMs: Int = 10000,
+    /** Jeda antar POST, milidetik. Mencegah request barengan ke server. */
+    val sendGapMs: Int = 500
+) {
+    companion object {
+        const val MAX_RETRIES = 10
+        const val MAX_DELAY = 60_000
+        const val MAX_TIMEOUT = 60_000
+
+        /**
+         * Angka di luar batas berarti file server rusak atau salah kirim.
+         * Nilainya diabaikan dan dipakai default - lebih baik daripada retry
+         * tanpa batas yang membuat aplikasi tidak bisa dihentikan.
+         */
+        fun fromJson(o: JSONObject?): DeliveryConfig {
+            if (o == null) return DeliveryConfig()
+            fun b(raw: Int, max: Int, fb: Int) = if (raw in 1..max) raw else fb
+            return DeliveryConfig(
+                maxRetries = b(o.optInt("maxRetries", 3), MAX_RETRIES, 3),
+                retryDelayMs = b(o.optInt("retryDelayMs", 1500), MAX_DELAY, 1500),
+                timeoutMs = b(o.optInt("timeoutMs", 10000), MAX_TIMEOUT, 10000),
+                sendGapMs = b(o.optInt("sendGapMs", 500), MAX_DELAY, 500)
+            )
+        }
+
+        fun toJson(c: DeliveryConfig) = JSONObject().apply {
+            put("maxRetries", c.maxRetries)
+            put("retryDelayMs", c.retryDelayMs)
+            put("timeoutMs", c.timeoutMs)
+            put("sendGapMs", c.sendGapMs)
+        }
+    }
+}
+
+/**
+ * Batas-batas housekeeping. Semuanya grow-only: SharedPreferences tidak
+ * boleh membengkak tanpa batas di perangkat yang sering menjalankan ulang
+ * prosesnya sendiri.
+ */
+data class RuntimeConfig(
+    /** Berapa baris log yang disimpan. */
+    val logLines: Int = 100,
+    /** Berapa kunci anti-duplikat yang diingat. */
+    val maxProcessedKeys: Int = 200
+) {
+    companion object {
+        const val MAX_LOG_LINES = 1000
+        const val MAX_KEYS = 2000
+
+        fun fromJson(o: JSONObject?): RuntimeConfig {
+            if (o == null) return RuntimeConfig()
+            fun b(raw: Int, max: Int, fb: Int) = if (raw in 10..max) raw else fb
+            return RuntimeConfig(
+                logLines = b(o.optInt("logLines", 100), MAX_LOG_LINES, 100),
+                maxProcessedKeys = b(o.optInt("maxProcessedKeys", 200), MAX_KEYS, 200)
+            )
+        }
+
+        fun toJson(c: RuntimeConfig) = JSONObject().apply {
+            put("logLines", c.logLines)
+            put("maxProcessedKeys", c.maxProcessedKeys)
+        }
+    }
+}
+
 /** Rekening keluarga -> id akun. Bagian dari data, bukan kode. */
 data class RuleSet(
     val version: Int,
     val accounts: Map<String, String>,
     val rules: List<Rule>,
     val pairs: PairConfig = PairConfig(),
+    val delivery: DeliveryConfig = DeliveryConfig(),
+    val runtime: RuntimeConfig = RuntimeConfig(),
     /**
      * Id akun yang boleh muncul di `command`. Berasal dari `knownIds` di
      * `rules.json`, digabung dengan [KNOWN_IDS] bawaan. Server boleh menambah,
@@ -260,6 +340,8 @@ data class RuleSet(
                 accounts = if (acc.isEmpty()) defaultAccounts() else acc,
                 rules = rules,
                 pairs = PairConfig.fromJson(o.optJSONObject("pairs")),
+                delivery = DeliveryConfig.fromJson(o.optJSONObject("delivery")),
+                runtime = RuntimeConfig.fromJson(o.optJSONObject("runtime")),
                 knownIds = KNOWN_IDS + ids.filter { it.matches(ID_RE) }
             )
         } catch (e: Exception) {
@@ -274,6 +356,8 @@ data class RuleSet(
             // field yang tidak dimodelkan akan hilang diam-diam saat diedit manual.
             o.put("knownIds", JSONArray(set.knownIds.sorted()))
             o.put("pairs", PairConfig.toJson(set.pairs))
+            o.put("delivery", DeliveryConfig.toJson(set.delivery))
+            o.put("runtime", RuntimeConfig.toJson(set.runtime))
             val arr = JSONArray()
             set.rules.forEach { r ->
                 arr.put(JSONObject().apply {

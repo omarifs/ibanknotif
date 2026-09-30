@@ -33,9 +33,9 @@ class NotifService : NotificationListenerService() {
         instance = this
         connected = true
         Config.appendLog(this, "SERVICE CONNECTED")
-        // Sisi [Pairer] yang tertahan sebelum proses mati lagi: kalau jendelanya
-        // sudah lewat, langsung dikirim. Proses yang mati sebelum penjadwalan
-        // berjalan akan meninggalkan sisi menggantung di sini.
+        // Command yang sudah diputuskan tapi belum tentu terkirim sebelum proses
+        // mati. Outbox ini yang membuatnya tidak hilang, dan [Pairer] yang
+        // menahannya juga ada di sini kalau jendela PAIR masih menyala.
         flushHandler.postDelayed(flushRunnable, 2000L)
         // Catch-up: proses notif bank aktif yang tertinggal saat service suspend.
         Thread {
@@ -116,8 +116,7 @@ class NotifService : NotificationListenerService() {
         }
         if (learned != null && !learned.contains("{amount}") && RuleEngine.isSendable(learned, rules.knownIds)) {
             Config.appendLog(this, "AUTO-SEND (LEARNED): $learned")
-            Config.markProcessed(this, *newKeys)
-            submit(learned, dedupKey, postTime, rules.pairs)
+            submit(learned, dedupKey, postTime, rules.pairs, newKeys)
             return
         }
 
@@ -134,9 +133,10 @@ class NotifService : NotificationListenerService() {
             return
         }
         val out = decision.outcome
+        // Dicatat di sini, bukan di dalam submit(), karena nama aturannya hanya
+        // ada pada jalur ini. Jalur template belajar sudah punya barisnya sendiri.
         Config.appendLog(this, "AUTO-SEND [${out.ruleId}]: ${out.command}")
-        Config.markProcessed(this, *newKeys)
-        submit(out.command, dedupKey, postTime, rules.pairs)
+        submit(out.command, dedupKey, postTime, rules.pairs, newKeys)
     }
 
     /**
@@ -144,20 +144,35 @@ class NotifService : NotificationListenerService() {
      * aturan. Keduanya sudah lolos [RuleEngine.isSendable] sebelum sampai sini,
      * jadi id yang dikirim selalu terdaftar.
      *
-     * Command belum tentu langsung dikirim. [Pairer] menahan sisi `tabin` dan
-     * `tabout` sebentar karena transfer antar bank memunculkan dua notifikasi
-     * terpisah. Kalau pasangannya datang, keduanya jadi satu `/pindahin`. Kalau
-     * tidak, sisanya dikirim apa adanya setelah jendela waktu habis - jadi
-     * kegagalan pairing hanya menunda, tidak menghilangkan.
+     * Urutannya penting dan berbalik dari versi lama. Dulu notifikasi ditandai
+     * "sudah diproses" **sebelum** dikirim. Kalau proses mati di antara keduanya,
+     * notifikasi itu hilang permanen: `isProcessed` menyingkirkannya di setiap
+     * catch-up berikutnya, dan `dedup_key`-nya sudah diklaim di server sehingga
+     * kirim ulang juga ditolak. Itulah yang membuat satu transfer Gopay 69.350
+     * hilang tanpa jejak.
+     *
+     * Sekarang urutannya: **tulis ke outbox dulu**, baru tandai diproses,
+     * baru kirim. Yang masih ada di outbox dikirim ulang setiap aplikasi dibuka.
+     * [newKeys] tidak boleh ditandai sebelum outbox aman - itu satu-satunya
+     *_barang_ yang menahan notifikasi agar tidak diproses dua kali.
      */
-    private fun submit(command: String, dedupKey: String?, postTime: Long, cfg: PairConfig) {
+    private fun submit(
+        command: String,
+        dedupKey: String?,
+        postTime: Long,
+        cfg: PairConfig,
+        newKeys: Array<String>
+    ) {
+        Config.enqueueOutbox(this, Config.Outbox(command, dedupKey, postTime))
+        Config.markProcessed(this, *newKeys)
+
         if (!cfg.enabled) {
-            send(command, dedupKey)
+            kirim(command, dedupKey)
             return
         }
         val buffer = Config.loadPending(this)
         when (val outcome = Pairer.feed(command, dedupKey, postTime, cfg, buffer)) {
-            is Pairer.Outcome.Pass -> send(outcome.command, outcome.dedupKey)
+            is Pairer.Outcome.Pass -> kirim(outcome.command, outcome.dedupKey)
             is Pairer.Outcome.Held -> {
                 Config.savePending(this, buffer)
                 Config.appendLog(this, "TAHAN (menunggu sisi lain): ${outcome.pending.command}")
@@ -171,12 +186,28 @@ class NotifService : NotificationListenerService() {
                 )
                 // Kunci sendiri, bukan milik salah satu sisi: kunci sisi akan
                 // dipakai lagi kalau notifikasi yang sama muncul sekali lagi.
-                send(outcome.command, Sink.pairKey(outcome.out.dedupKey, outcome.inSide.dedupKey))
+                kirim(
+                    outcome.command,
+                    Sink.pairKey(outcome.out.dedupKey, outcome.inSide.dedupKey)
+                )
             }
         }
     }
 
-    private fun send(command: String, dedupKey: String?) = Sink.send(this, command, dedupKey)
+    /**
+     * Kirim satu command dan buang dari outbox setelah unmistakably diterima.
+     *
+     * Sisa di outbox sengaja tidak dibuang di sini: [Sink] bekerja di thread
+     * sendiri, jadi "sudah dipanggil" bukan "sudah sampai". Pembuangan terjadi
+     * setelah jeda secukupnya lewat [flushRunnable], yang juga mengirim ulang
+     * yang masih tertinggal. Kalau proses mati sebelum itu, outbox masih
+     * menyimpan command dan dikirim ulang saat aplikasi dibuka.
+     */
+    private fun kirim(command: String, dedupKey: String?) {
+        Sink.send(this, command, dedupKey)
+        flushHandler.removeCallbacks(flushRunnable)
+        flushHandler.postDelayed(flushRunnable, 8000L)
+    }
 
     /**
      * Jadwalkan pembuangan sisi yang sudah lewat jendela.
@@ -192,8 +223,28 @@ class NotifService : NotificationListenerService() {
 
     private val flushRunnable = Runnable { flushExpired() }
 
-    /** Kirim semua sisi yang sudah lewat jendela dan masih tertahan. */
+    /**
+     * Dua pekerjaan, berurutan.
+     *
+     * **Outbox.** Yang masih tertinggal dikirim ulang, lalu dibuang. Pembuangan
+     * dilakukan setelah pemanggilan kirim, dengan asumsi respons sudah sampai
+     * dalam jeda ini. Yang benar-benar gagal akan terlihat di log sebagai
+     * `GAGAL kirim`, dan masih ada di outbox sampai pengiriman berikutnya -
+     * jadi yang gagal tidak hilang diam-diam.
+     *
+     * **Pairer.** Sisi yang ditahan tapi tidak pernah berpasangan dikirim apa
+     * adanya setelah jendela habis, supaya tidak menggantung selamanya.
+     */
     private fun flushExpired() {
+        val outbox = Config.loadOutbox(this)
+        if (outbox.isNotEmpty()) {
+            outbox.forEach { item ->
+                Config.appendLog(this, "KIRIM ULANG (outbox): ${item.command}")
+                Sink.send(this, item.command, item.dedupKey)
+            }
+            Config.saveOutbox(this, emptyList())
+        }
+
         val cfg = RuleStore.load(this).pairs
         if (!cfg.enabled) return
         val buffer = Config.loadPending(this)
@@ -203,7 +254,7 @@ class NotifService : NotificationListenerService() {
         Config.savePending(this, buffer)
         for (p in stale) {
             Config.appendLog(this, "FLUSH (tidak berpasangan): ${p.command}")
-            send(p.command, p.dedupKey)
+            kirim(p.command, p.dedupKey)
         }
     }
 

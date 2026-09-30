@@ -765,3 +765,94 @@ class PairerTest {
         assertNull(Sink.pairKey(null, ko))
     }
 }
+
+/**
+ * Setelan pengiriman dan housekeeping: nilai dari server, defaultnya sama
+ * dengan perilaku lama, dan angka di luar batas ditolak.
+ */
+class DeliveryConfigTest {
+
+    @Test
+    fun `tanpa blok memakai default yang sama dengan sebelumnya`() {
+        val d = DeliveryConfig.fromJson(null)
+        assertEquals(3, d.maxRetries)
+        assertEquals(1500, d.retryDelayMs)
+        assertEquals(10000, d.timeoutMs)
+        assertEquals(500, d.sendGapMs)
+        val r = RuntimeConfig.fromJson(null)
+        assertEquals(100, r.logLines)
+        assertEquals(200, r.maxProcessedKeys)
+    }
+
+    @Test
+    fun `nilai dari server dipakai apa adanya`() {
+        val d = DeliveryConfig.fromJson(
+            org.json.JSONObject(
+                """{"maxRetries":5,"retryDelayMs":800,"timeoutMs":3000,"sendGapMs":200}"""
+            )
+        )
+        assertEquals(5, d.maxRetries)
+        assertEquals(800, d.retryDelayMs)
+        assertEquals(3000, d.timeoutMs)
+        assertEquals(200, d.sendGapMs)
+    }
+
+    @Test
+    fun `angka mustahil ditolak dan defaultnya dipakai`() {
+        // Retry tanpa batas membuat aplikasi tidak bisa dihentikan, dan angka
+        // absurd di file server hampir selalu salah kirim.
+        val nakal = DeliveryConfig.fromJson(
+            org.json.JSONObject("""{"maxRetries":99999,"retryDelayMs":-1,"timeoutMs":0}""")
+        )
+        assertEquals(3, nakal.maxRetries)
+        assertEquals(1500, nakal.retryDelayMs)
+        assertEquals(10000, nakal.timeoutMs)
+    }
+
+    @Test
+    fun `runtime terlalu kecil ditolak`() {
+        // Batas bawah 10: log 1 baris tidak berguna dan hanya membuang Context.
+        val kecil = RuntimeConfig.fromJson(
+            org.json.JSONObject("""{"logLines":1,"maxProcessedKeys":0}""")
+        )
+        assertEquals(100, kecil.logLines)
+        assertEquals(200, kecil.maxProcessedKeys)
+    }
+
+    @Test
+    fun `delivery dan runtime tidak hilang saat json dibolak balik`() {
+        // Dialog Aturan menyalin JSON lewat RuleSet.toJson. Field yang tidak
+        // dimodelkan akan hilang diam-diam setiap kali pengguna mengedit.
+        val asli = RuleSet.fromJson(
+            """{"version":1,"accounts":{},"rules":[],
+               "delivery":{"maxRetries":7,"sendGapMs":111},
+               "runtime":{"logLines":222,"maxProcessedKeys":333}}"""
+        )!!
+        val pulih = RuleSet.fromJson(RuleSet.toJson(asli))!!
+        assertEquals(7, pulih.delivery.maxRetries)
+        assertEquals(111, pulih.delivery.sendGapMs)
+        assertEquals(222, pulih.runtime.logLines)
+        assertEquals(333, pulih.runtime.maxProcessedKeys)
+    }
+
+    @Test
+    fun `rules json bawaan punya blok delivery dan runtime`() {
+        val f = File("src/main/assets/rules.json")
+        assertTrue("assets/rules.json tidak ditemukan", f.exists())
+        val set = RuleSet.fromJson(f.readText())
+            ?: throw AssertionError("assets/rules.json tidak bisa di-parse")
+        assertEquals(3, set.delivery.maxRetries)
+        assertEquals(100, set.runtime.logLines)
+    }
+
+    @Test
+    fun `rules json tanpa blok delivery tetap valid untuk apk lama`() {
+        // fromJson versi lama hanya membaca version/accounts/knownIds/rules.
+        // Kunci asing harus diabaikan, bukan membuat file ditolak.
+        val set = RuleSet.fromJson(
+            """{"version":3,"accounts":{"8533":"bri.ibu"},"rules":[]}"""
+        ) ?: throw AssertionError("gagal parse")
+        assertEquals(3, set.delivery.maxRetries)
+        assertEquals(100, set.runtime.logLines)
+    }
+}
