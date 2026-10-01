@@ -176,6 +176,40 @@ data class RuntimeConfig(
     }
 }
 
+/**
+ * Model Gemini yang dipakai untuk Pindai AI. Data, bukan kode, karena Google
+ * mencabut nomor model tanpa pemberitahuan: `gemini-2.0-flash` mati dengan 404
+ * padahal kodenya masih benar.
+ *
+ * Defaultnya `gemini-flash-latest` - **alias**, bukan nomor versi. Alias selalu
+ * menunjuk flash stabil terbaru, jadi tidak perlu dijaga tiap kali Google
+ * menaikkan major. Nomor versi yang dipatok justru yang membuat Pindai AI mati.
+ */
+data class AiConfig(val model: String = DEFAULT_MODEL) {
+    companion object {
+        const val DEFAULT_MODEL = "gemini-flash-latest"
+
+        /**
+         * Bentuk model id. Dipakai sebagai potongan path URL, jadi bentuk salah
+         * harus ditolak: `../` menunjuk endpoint lain dan `?key=` bisa menyelipkan
+         * parameter ke URL yang sudah membawa API key. String dari server tidak
+         * dipercaya tanpa ini.
+         */
+        val MODEL_RE = Regex("""^[a-z0-9][a-z0-9._-]{0,63}$""")
+
+        fun fromJson(o: JSONObject?): AiConfig {
+            if (o == null) return AiConfig()
+            // optString() MENG-COERCE: JSON null jadi "null" dan angka jadi "123".
+            // "null" lolos MODEL_RE, lalu URL jadi ".../models/null:generateContent".
+            // Jadi nilai harus dipastikan String dulu, bukan opted langsung.
+            val m = (o.opt("model") as? String)?.trim().orEmpty()
+            return AiConfig(if (m.isNotEmpty() && MODEL_RE.matches(m)) m else DEFAULT_MODEL)
+        }
+
+        fun toJson(c: AiConfig) = JSONObject().put("model", c.model)
+    }
+}
+
 /** Rekening keluarga -> id akun. Bagian dari data, bukan kode. */
 data class RuleSet(
     val version: Int,
@@ -184,6 +218,11 @@ data class RuleSet(
     val pairs: PairConfig = PairConfig(),
     val delivery: DeliveryConfig = DeliveryConfig(),
     val runtime: RuntimeConfig = RuntimeConfig(),
+    /**
+     * Model AI. Setelah [runtime] supaya pemanggilan posisional yang sudah ada
+     * (tiga argumen) tetap jalan tanpa disentuh.
+     */
+    val ai: AiConfig = AiConfig(),
     /**
      * Id akun yang boleh muncul di `command`. Berasal dari `knownIds` di
      * `rules.json`, digabung dengan [KNOWN_IDS] bawaan. Server boleh menambah,
@@ -342,6 +381,7 @@ data class RuleSet(
                 pairs = PairConfig.fromJson(o.optJSONObject("pairs")),
                 delivery = DeliveryConfig.fromJson(o.optJSONObject("delivery")),
                 runtime = RuntimeConfig.fromJson(o.optJSONObject("runtime")),
+                ai = AiConfig.fromJson(o.optJSONObject("ai")),
                 knownIds = KNOWN_IDS + ids.filter { it.matches(ID_RE) }
             )
         } catch (e: Exception) {
@@ -358,6 +398,7 @@ data class RuleSet(
             o.put("pairs", PairConfig.toJson(set.pairs))
             o.put("delivery", DeliveryConfig.toJson(set.delivery))
             o.put("runtime", RuntimeConfig.toJson(set.runtime))
+            o.put("ai", AiConfig.toJson(set.ai))
             val arr = JSONArray()
             set.rules.forEach { r ->
                 arr.put(JSONObject().apply {

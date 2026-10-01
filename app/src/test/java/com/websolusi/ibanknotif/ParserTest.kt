@@ -778,6 +778,85 @@ class PairerTest {
 }
 
 /**
+ * Model AI. `gemini-2.0-flash` dicabut Google dan Pindai AI mati dengan 404
+ * padahal tidak ada baris kode yang salah - jadi model harus data, bukan
+ * konstanta. Yang diuji: default hidup, nilai server dipakai, bentuk salah
+ * ditolak, dan tidak hilang saat JSON dibolak balik lewat editor.
+ */
+class AiConfigTest {
+
+    @Test
+    fun `tanpa blok memakai default yang tidak sudah mati`() {
+        assertEquals(AiConfig.DEFAULT_MODEL, AiConfig.fromJson(null).model)
+    }
+
+    @Test
+    fun `model dari server dipakai apa adanya`() {
+        val a = AiConfig.fromJson(
+            org.json.JSONObject("""{"model":"gemini-2.5-flash"}""")
+        )
+        assertEquals("gemini-2.5-flash", a.model)
+    }
+
+    @Test
+    fun `bentuk model yang salah ditolak dan defaultnya dipakai`() {
+        // Nilainya jadi potongan path URL yang sudah membawa API key, jadi
+        // `../` dan `?key=` harus jatuh ke default, bukan dipakai.
+        for (nakal in listOf("../v1/models/x", "gemini?key=abc", "gemini/flash",
+                            "GEMINI-FLASH", "", "   ", "x".repeat(65))) {
+            val a = AiConfig.fromJson(
+                org.json.JSONObject("""{"model":${org.json.JSONObject.quote(nakil)}}""")
+            )
+            assertEquals("model nakal harus ditolak: '$nakal'",
+                AiConfig.DEFAULT_MODEL, a.model)
+        }
+    }
+
+    @Test
+    fun `model yang bukan teks ditolak dan defaultnya dipakai`() {
+        // optString() meng-coerce: JSON null jadi "null" dan angka jadi "123".
+        // "null" justru LOLOS regex, lalu URL jadi ".../models/null:generateContent".
+        // Jadi nilai non-String harus ditolak sebelum diuji bentuknya.
+        assertEquals(AiConfig.DEFAULT_MODEL, AiConfig.fromJson(
+            org.json.JSONObject("""{"model":null}""")).model)
+        assertEquals(AiConfig.DEFAULT_MODEL, AiConfig.fromJson(
+            org.json.JSONObject("""{"model":123}""")).model)
+        assertEquals(AiConfig.DEFAULT_MODEL, AiConfig.fromJson(
+            org.json.JSONObject("""{"model":true}""")).model)
+    }
+
+    @Test
+    fun `ai tidak hilang saat json dibolak balik lewat editor`() {
+        // Dialog Aturan menyalin JSON lewat RuleSet.toJson. Kalau `ai` tidak ikut
+        // ditulis, model kembali ke default setiap kali pengguna mengedit -
+        // persis kelas bug yang membuat data lain hilang diam-diam.
+        val asli = RuleSet.fromJson("""{"version":1,"accounts":{},"rules":[],
+            "ai":{"model":"gemini-2.5-flash"}}""")!!
+        val pulih = RuleSet.fromJson(RuleSet.toJson(asli))!!
+        assertEquals("gemini-2.5-flash", pulih.ai.model)
+    }
+
+    @Test
+    fun `rules json tanpa blok ai tetap valid untuk apk lama`() {
+        // APK lama mengabaikan kunci asing lewat optJSONObject, jadi file server
+        // yang sudah punya `ai` tidak boleh membuat APK lama menolak semuanya.
+        val set = RuleSet.fromJson(
+            """{"version":3,"accounts":{"8533":"bri.ibu"},"rules":[]}"""
+        ) ?: throw AssertionError("gagal parse")
+        assertEquals(AiConfig.DEFAULT_MODEL, set.ai.model)
+    }
+
+    @Test
+    fun `rules json bawaan memakai model yang hidup`() {
+        val f = File("src/main/assets/rules.json")
+        assertTrue("assets/rules.json tidak ditemukan", f.exists())
+        val set = RuleSet.fromJson(f.readText())
+            ?: throw AssertionError("assets/rules.json tidak bisa di-parse")
+        assertEquals("gemini-flash-latest", set.ai.model)
+    }
+}
+
+/**
  * Setelan pengiriman dan housekeeping: nilai dari server, defaultnya sama
  * dengan perilaku lama, dan angka di luar batas ditolak.
  */

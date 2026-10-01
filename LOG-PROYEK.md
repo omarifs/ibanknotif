@@ -995,6 +995,105 @@ koreksi manual yang tidak bisa diekspresikan sebagai aturan - jangan dihapus
 begitu saja. Catat dulu isinya, karena setelah dihapus tidak ada tempat lain
 untuk menuliskannya.
 
+### U. Model AI Dicabut Google, Jadi Model AI Jadi Data (2026-10-01)
+
+**Gejala.** Tombol **Pindai AI** dan **Perbaiki dengan AI** mati. Di log:
+
+```
+GEMINI ERR 404: {"error":{"code":404,
+"message":"models/gemini-2.0-flash is not found for API version v1beta, or is
+not supported for generateContent. Call ListModels to see the list of available
+models and their supported methods."}}
+```
+
+**Bukan salah klasifikasi, dan bukan salah kode.** `Gemini.kt` masih pinning
+`private const val MODEL = "gemini-2.0-flash"`. Google mencabut model tanpa
+pemberitahuan, jadi setiap pencabutan memaksa build ulang - dan build sudah
+gagal berulang kali di repo ini (5K). Jalur auto-detect offline tidak ikut
+mati: itu `NotifService` + `RuleSet`, tidak menyentuh Gemini sama sekali.
+
+**Perbaikannya: `ai.model` jadi data di `rules.json` v7.** Bentuknya sama
+dengan `pairs`, `delivery`, dan `runtime` - konstanta di dalam data class,
+defaultnya di dalam kode, parser-nya menolak nilai di luar batas:
+
+```kotlin
+data class AiConfig(val model: String = DEFAULT_MODEL)
+```
+
+`AiConfig` berisi `DEFAULT_MODEL = "gemini-flash-latest"` dan
+`MODEL_RE = ^[a-z0-9][a-z0-9._-]{0,63}$`. Defaultnya **alias**, bukan nomor
+versi, dan itu justru inti perbaikannya: `gemini-2.0-flash` mati justru karena
+nomor versinya dipatok. Alias selalu menunjuk flash stabil terbaru, jadi tidak
+perlu dijaga setiap kali Google menaikkan major.
+
+**Jebakan yang ketahuan saat menulis test: `optString()` MENG-COERCE.** Ini
+bukan tebakan, hasil uji:
+
+```
+{"model": null}  ->  optString = "null"  ->  LOLOS regex  ->  URL jadi
+                                    .../models/null:generateContent
+{"model": 123}   ->  optString = "123"   ->  ditolak regex -> default
+```
+
+`"null"` lolos `MODEL_RE` karena memang sah bentuknya. Perbaikannya nilai
+harus dipastikan `String` dulu sebelum diuji:
+
+```kotlin
+val m = (o.opt("model") as? String)?.trim().orEmpty()
+```
+
+Ini kelas bug yang sama seperti `PatternStore`: input dari server tidak
+boleh dipercaya tanpa saringan, dan `null` adalah input yang sah di JSON.
+
+**Kenapa `ai` harus ikut di `toJson` juga.** Kalau hanya di `fromJson`, blok itu
+hilang diam-diam setiap kali pengguna mengedit Aturan di HP, karena dialog itu
+menyalin JSON lewat `RuleSet.toJson` lalu `fromJson`. Model yang sudah
+diperbaiki di server akan kembali ke default tanpa pesan apa pun. Persis
+jebakan yang sudah tercatat di `Rule.kt:356` dan `KnownIdsTest`.
+
+**Yang TIDAK bisa diperbaiki lewat data: HP yang masih pakai APK lama.** APK
+lama mengabaikan kunci `ai` karena tidak punya `fromJson`-nya, jadi ia akan
+terus memanggil `gemini-2.0-flash` yang sudah dicabut. Tidak ada `rules.json`
+yang bisa menutup ini - sama seperti 5P. APK lama **tidak ditolak** (sudah
+disimulasikan terhadap parser versi lama: 14 aturan, semua token `when` dan
+id akun dikenal), jadi file server tidak membekukan HP lama. Tapi Pindai AI di
+HP lama tetap 404 sampai APK-nya diganti.
+
+**`v1beta` dibiarkan.** Fokusnya satu penyebab yang ditunjukkan bukti: nama
+model. Kalau `gemini-flash-latest` ternyata juga 404 setelah ganti APK,
+penyebab berikutnya adalah versi API (`v1` vs `v1beta`), dan itu bukan
+konten data - perlu keputusan tersendiri.
+
+**Verifikasi.** Environment ini tidak punya JDK, jadi `./gradlew` tidak jalan.
+Yang dilakukan: port `AiConfig.fromJson`/`toJson` ke Python lalu 11 kelompok
+kasus dijalankan (tanpa blok, nilai server dipakai apa adanya, 7 bentuk salah
+ditolak, 5 bentuk sah diterima, nilai non-String ditolak, putar-balik utuh,
+model bertahan setelah diedit, file APK lama aman, `assets/rules.json` benar,
+URL akhir, model mati tidak ada di URL) - semua lulus. Plus pemeriksaan bentuk
+(kurung kurawal setelah string dan komentar dibuang, termasuk raw string
+`"""`), scan korup, dan cross-check anggota `AiConfig.x` yang dipanggil. Shape
+saja, **bukan bukti kompilasi** - `./gradlew testDebugUnitTest` harus jalan di
+mesin yang punya SDK dan hasilnya dilaporkan apa adanya.
+
+Deploy: backup `rules.json.bak-20261001-230451` di `dn-arif`, lalu scp v7.
+Curl ke `https://tools.websolusi.com/telegram/rules.json` sudah mengembalikan
+`ai.model = gemini-flash-latest` dan `version = 7`.
+
+**Langkah di HP setelah memasang 1.0.5.** Tekan **Tarik Semua** (atau buka
+saja aplikasinya, penarikan otomatis), lalu tes Pindai AI dan baca lognya.
+Kalau baris pertamanya masih `GEMINI ERR 404 [model ...]`, nama model itu yang
+salah - dan perbaikannya cukup ubah satu string di `rules.json` server, bukan
+build. **Tidak perlu** tekan Bersihkan Hasil Belajar untuk perubahan ini,
+karena tidak ada aturan klasifikasi yang berubah; langkah itu tetap wajib
+untuk setiap perubahan isi `rules` (lihat 5S).
+
+**Yang belum terverifikasi, terus terang.** `gemini-flash-latest` berasal dari
+dokumentasi, bukan dari respons API: `ai.google.dev` timeout dari sini dan
+`ListModels` membalas 403 tanpa API key (`"Method doesn't allow unregistered
+callers"`), sedangkan key-nya ada di HP, bukan di repo. Kalau ternyata salah,
+log baris baru `GEMINI ERR $code [model $model]:` langsung menyebut model yang
+ditolak, dan itu justru bukti bahwa pencatatan model itu berguna.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 

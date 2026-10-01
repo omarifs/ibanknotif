@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
@@ -19,6 +19,9 @@
   "runtime": {
     "logLines": 100,
     "maxProcessedKeys": 200
+  },
+  "ai": {
+    "model": "gemini-flash-latest"
   },
   "rules": [
     {

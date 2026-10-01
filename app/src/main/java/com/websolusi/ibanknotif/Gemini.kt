@@ -30,8 +30,19 @@ data class AiResult(
 
 object Gemini {
 
-    private const val MODEL = "gemini-2.0-flash"
-    private const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
+    /**
+     * Nama model **tidak** dipatok di sini. `gemini-2.0-flash` dicabut Google dan
+     * Pindai AI mati dengan 404 padahal tidak ada satu baris kode yang salah.
+     * Sumbernya `ai.model` di `rules.json`, jadi penggantian model cukup ubah satu
+     * string di server - tanpa build ulang. [AiConfig] yang punya defaultnya.
+     *
+     * [RuleStore.load] tidak pernah menyentuh jaringan, jadi aman di sini: fungsi
+     * ini dipanggil dari thread UI, bukan dari listener notifikasi.
+     */
+    private fun aiModel(ctx: Context): String = RuleStore.load(ctx).ai.model
+
+    private fun base(model: String) =
+        "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     private const val PROMPT_FILE = "prompt.txt"
     private const val KEY_PROMPT_CACHE = "ai_prompt_cache"
@@ -118,9 +129,10 @@ object Gemini {
                 put("maxOutputTokens", 4096)
             })
         }
+        val model = aiModel(ctx)
         var conn: HttpURLConnection? = null
         return try {
-            conn = URL("$BASE?key=$apiKey").openConnection() as HttpURLConnection
+            conn = URL("${base(model)}?key=$apiKey").openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
             conn.connectTimeout = 30000
@@ -130,7 +142,9 @@ object Gemini {
             val code = conn.responseCode
             if (code !in 200..299) {
                 val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                Config.appendLog(ctx, "GEMINI ERR $code: ${err.take(300)}")
+                // Model ikut ditulis: saat model dicabut, baris ini yang mencegah
+                // "kenapa gagal" jadi tebakan.
+                Config.appendLog(ctx, "GEMINI ERR $code [model $model]: ${err.take(300)}")
                 return null
             }
             JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
