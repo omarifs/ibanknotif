@@ -1094,6 +1094,103 @@ callers"`), sedangkan key-nya ada di HP, bukan di repo. Kalau ternyata salah,
 log baris baru `GEMINI ERR $code [model $model]:` langsung menyebut model yang
 ditolak, dan itu justru bukti bahwa pencatatan model itu berguna.
 
+### V. Situs `websolusi.com`: Auto-Publish Artikel AI (2026-10-03)
+
+**Catatan cakupan.** Subsection ini berbeda codebase dari 5A-5U. Yang dikerjakan
+adalah situs publik `websolusi.com` di akun cPanel yang sama (`/home/solveitm/`),
+bukan aplikasi Android IBankNotif. Bedanya penting: situs ini **tidak punya clone
+lokal** dan **tidak punya shell interaktif** ke server, jadi semua verifikasi
+dilakukan lewat HTTP dan file manager. Skill untuk pekerjaan ini:
+`.opencode/skills/agc-berbasis-korpus/SKILL.md`.
+
+**Empat bug yang tidak berteriak.** Semuanya statusnya "hijau" di mata sampai
+dibuka satu per satu:
+
+1. **`receiver.php` menulis file sembarang tanpa auth.** File PHP yang menerima
+   POST dan menulis ke disk tanpa satu pun pemeriksaan identitas. Dihapus, bukan
+   diamankan - tidak ada fitur yang perlu dilayaninya.
+2. **`parseInt` pada slug artikel.** `parseInt("10-pengenalan-ci-cd...")`
+   mengembalikan `10`, bukan `NaN`, tanpa error. Efeknya 5 dari 9 URL artikel 404
+   tanpa jejak di log, sementara ID-nya tampak "valid". Rute harus
+   `WHERE slug = ?`. Ditambah unique index `slug_unique`.
+3. **Hardcoded admin.** `admin/admin123` dan `JWT_SECRET="your-secret-key"` ada di
+   kode. Dipindah ke `.env`, kredensial lama dirotasi, lalu **diuji terhadap
+   layanannya**: login lama membalas 401. Mengubah file tidak menegakkan nilai
+   lama - ini pola yang sama seperti rotasi Telegram di 7.13.
+4. **Build gagal diam-diam sejak Agustus.** `admin.tsx` rusak
+   (`Unexpected end of file`) dan cron build tidak menulis log, jadi kegagalannya
+   hanya sampai ke email cron. Diperbaiki, dan sekarang `build.log` di docroot -
+   tanpa itu, build gagal berikutnya juga tidak terlihat.
+
+**Draft bocor ke publik.** `/api/articles` mengembalikan semua artikel termasuk
+draft. Sekarang publik hanya melihat `published`, admin lewat `/api/admin/articles`.
+Draft yang bocor bukan masalah kosmetik: artikel placeholder ikut terindeks.
+
+**SSR artikel.** Dulu URL artikel mengembalikan shell SPA 10.302 byte berisi
+`<head>` kosong - crawler tidak melihat apa pun. Sekarang HTML asli berisi
+`<title>`, meta, canonical, Open Graph, dan JSON-LD `TechArticle`,plus
+`robots.txt`, sitemap dinamis, dan `og-image.png` (sebelumnya mengembalikan
+HTML untuk file PNG).
+
+**Auto-publish, dan syaratnya.** Permintaan pengguna: AGC menerbitkan sendiri,
+bukan menumpuk draft. Disetujui **karena sumbernya milik sendiri**: 9 file
+`content-corpus/*.md` berisi data operasional akun ini - batas LVE terukur,
+isi log error asli, konfigurasi nyata. AI tidak mengarang angka; ia merangkai
+fakta yang sudah ada. Kalau korpusnya internet umum, permintaan yang sama harus
+ditolak: auto-publish mempublikasikan kemungkinan-kesalahan atas nama perusahaan.
+
+Rantai gerbangnya tiga anak tangga dan tidak boleh ada keempat: sumber (korpus),
+prompt (larangan mengarang), validator (panjang, jumlah heading, frasa terlarang,
+markdown yang didukung renderer). **Validator wajib jalan sebelum `UPDATE`**,
+dan kegagalan harus jadi log.
+
+**Kenyataan:auto-publish tidak menghapus review, ia menggesernya** - dari
+sebelum terbit ke sebelum generate.
+
+**Yang sudah jadi bug laporan, bukan REQUEST kedua:**
+
+- SQL sudah `status = 'published'` tapi komentar kepala file masih "writes ...
+  DRAFT". Komentar yang menyimpang lebih berbahaya dari tidak ada komentar.
+- `PUT /api/articles/:id` adalah **ganti objek penuh**, bukan PATCH.
+  `{"status":"published"}` saja menghasilkan HTTP 500 karena kolom lain jadi
+  `NULL`. Solusinya: ambil objek, ubah field, kirim utuh.
+- Menghapus script sementara **tidak menghapus cron-nya**. Dua cron (tiap 9 menit)
+  masih menunjuk `check-gemini.sh` dan `agc-test.sh` yang sudah dihapus - akan
+  error terus-menerus tanpa jejak di situs. Cron ikut dibersihkan.
+
+**Idempoten adalah syarat retry, bukan keangkuhan.** AGC melompat artikel yang
+kontennya sudah terisi (placeholder = <300 karakter atau diakhiri `...`),
+`--force` untuk regenerasi disengaja. Tanpa ini, cron malam bisa menimpa artikel
+yang sudah disunting manusia. Placeholder dideteksi dari isi, bukan
+`content = ''`, karena artikel hasil suntingan manusia bisa saja pendek.
+
+**Kuota free tier adalah realitiescheduling, bukan masalah kode.** Gemini free
+tier 20 request/jam; 9 artikel butuh 9 request. Setelah kuota habis muncul 429
+`RESOURCE_EXHAUSTED` lalu 503 high demand. Respons yang benar: **jangan retry di
+dalam proses**, biarkan cron berikutnya memproses sisanya. Cron terjadwal 04:23
+dan 16:23, jadi isi ulang tercepat ~12 jam - itu yang harus dijanjikan ke
+pengguna, bukan "nanti saja".
+
+**Nomor model jadi `.env`, sama seperti di APK.** `GEMINI_MODEL=gemini-2.5-flash`
+di `.env`, bukan dipatok di skrip - aturan 5U berlaku persis di dua tempat.
+Model sempat `gemini-3.8-flash` (ada di `ListModels`) tapi lebih sering kena 503,
+jadi pindah ke `gemini-2.5-flash`.
+
+**Cara verifikasi tanpa shell (tiga lapis, semuanya terpakai):**
+
+1. Sapu 13 endpoint dengan `curl`: kode HTTP, `Content-Type`, dan isi yang
+   membuktikan bukan placeholder. Termasuk sisi negatif - draft 404, admin tanpa
+   token 401, API tidak cocok JSON 404 bukan HTML.
+2. **Uji SSR dengan publish lalu rollback**: artikel id 8 diubah jadi published,
+   HTML-nya dicek, lalu dikembalikan ke draft. Tidak di-rollback berarti
+   mempublikasikan artikel uji tanpa sengaja.
+3. `node --check` untuk skrip, lewat cron sekali jalan.
+
+**Status saat ini.** 2 artikel published dan live (id 2 dan 9, 8.419 dan 8.637
+karakter, keduanya masuk sitemap). 7 sisanya masih placeholder dan akan terisi
+otomatis oleh cron-agc. Semua artefak verifikasi sudah dihapus, termasuk dua
+cron Sementara yang menyinggung.
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 
