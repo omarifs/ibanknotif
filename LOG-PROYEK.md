@@ -1144,6 +1144,12 @@ prompt (larangan mengarang), validator (panjang, jumlah heading, frasa terlarang
 markdown yang didukung renderer). **Validator wajib jalan sebelum `UPDATE`**,
 dan kegagalan harus jadi log.
 
+> **Koreksi 2026-10-03 sore:** rantai ini ternyata **tidak lengkap** - satu anak
+> tangga hilang, yaitu **redaksi**. Validator dijawab "apakah artikel ini bagus",
+> bukan "apakah ini aman tayang". Lihat bagian W. Yang benar empat anak
+> tangga: sumber (korpus) → prompt → **redaksi** → validator. Dan urutan
+> redaksi harus **sebelum** validator, bukan sesudahnya.
+
 **Kenyataan:auto-publish tidak menghapus review, ia menggesernya** - dari
 sebelum terbit ke sebelum generate.
 
@@ -1164,17 +1170,31 @@ kontennya sudah terisi (placeholder = <300 karakter atau diakhiri `...`),
 yang sudah disunting manusia. Placeholder dideteksi dari isi, bukan
 `content = ''`, karena artikel hasil suntingan manusia bisa saja pendek.
 
-**Kuota free tier adalah realitiescheduling, bukan masalah kode.** Gemini free
-tier 20 request/jam; 9 artikel butuh 9 request. Setelah kuota habis muncul 429
-`RESOURCE_EXHAUSTED` lalu 503 high demand. Respons yang benar: **jangan retry di
-dalam proses**, biarkan cron berikutnya memproses sisanya. Cron terjadwal 04:23
-dan 16:23, jadi isi ulang tercepat ~12 jam - itu yang harus dijanjikan ke
-pengguna, bukan "nanti saja".
+**Kuota adalah soal penjadwalan, tapi "jangan retry" adalah salah.** Pernah
+ditulis di sini: free tier 20 request/jam, jadi jangan retry di dalam proses.
+Dua-duanya dikoreksi:
 
-**Nomor model jadi `.env`, sama seperti di APK.** `GEMINI_MODEL=gemini-2.5-flash`
-di `.env`, bukan dipatok di skrip - aturan 5U berlaku persis di dua tempat.
-Model sempat `gemini-3.8-flash` (ada di `ListModels`) tapi lebih sering kena 503,
-jadi pindah ke `gemini-2.5-flash`.
+- **Angka "20 request/jam" tidak pernah diverifikasi** dan tidak boleh diulang
+  sebagai fakta. Yang benar-benar terlihat di log hanya HTTP 429
+  `RESOURCE_EXHAUSTED` (kuota) dan HTTP 503 high demand (beban). Keduanya
+  responsnya sama: coba lagi dengan backoff.
+- **"Jangan retry di dalam proses" juga salah.** 429 bisa habis dalam hitungan
+  detik, dan satu eksekusi bisa jadi 9 request sia-sia. Yang benar adalah retry
+  in-process dengan backoff: 429 menunggu 60/120/180/240 detik, 5xx menunggu
+  20/40/60/120 detik, maksimum 4 percobaan per artikel. Yang tidak dicoba ulang
+  adalah **404**, karena itu bukan kuota.
+
+**Nomor model jadi `.env`, sama seperti di APK.** `GEMINI_MODEL` dan
+`GEMINI_FALLBACK_MODELS` di `.env`, bukan dipatok di skrip - aturan 5U berlaku
+persis di dua tempat.
+
+> **Koreksi 2026-10-03 sore:** urutan modelnya terbalik, dan klaim di sini
+> salah. Yang benar: `gemini-2.5-flash` **dicabut Google** - HTTP 404 dengan
+> pesan "no longer available to new users" - padahal **masih muncul di
+> `ListModels`**. Dipindah ke `gemini-3.8-flash` dengan fallback
+> `gemini-3.5-flash, gemini-flash-latest`. Pelajaran yang lebih besar: **daftar
+> model bukan bukti model bisa dipakai.** Yang membuktikan adalah satu
+> panggilan `generateContent`.
 
 **Cara verifikasi tanpa shell (tiga lapis, semuanya terpakai):**
 
@@ -1186,10 +1206,232 @@ jadi pindah ke `gemini-2.5-flash`.
    mempublikasikan artikel uji tanpa sengaja.
 3. `node --check` untuk skrip, lewat cron sekali jalan.
 
-**Status saat ini.** 2 artikel published dan live (id 2 dan 9, 8.419 dan 8.637
-karakter, keduanya masuk sitemap). 7 sisanya masih placeholder dan akan terisi
-otomatis oleh cron-agc. Semua artefak verifikasi sudah dihapus, termasuk dua
-cron Sementara yang menyinggung.
+**Status saat ini.** 3 artikel published dan live: id 2 (8.419 karakter), id 9
+(8.649, setelah redaksi), dan id 6 (9.705 karakter, **dipublish sendiri oleh
+cron-agc** - bukti bahwa auto-publish benar-benar jalan, bukan hanya allegedly).
+Sitemap memuat 5 URL: home, blog, dan 3 artikel. Enam sisanya masih placeholder
+(id 1, 3, 4, 5, 7, 8) dan akan terisi oleh cron 04:23 dan 16:23. Semua artefak
+verifikasi sudah dihapus, termasuk dua cron sementara yang menyinggung.
+
+### W. "Data Saya Bocor": dari Mana, dan Apa yang Sebenarnya (2026-10-03 sore)
+
+**Keluhan pengguna:** "kenapa data saya bocor". Sumber: dari luar, yaitu
+dengan membaca apa yang benar-benar bisa dilihat siapa pun di internet.
+
+**Hasil pemeriksaan dari luar - dan ini penting - kredensial TIDAK bocor:**
+
+| Yang diperiksa | Hasil |
+|---|---|
+| `/.env`, `/.env.bak` | 403, body tidak memuat secret |
+| `/.git/config`, `/.htaccess` | 403 |
+| `/solveitm_websolusi.sql`, `/build.log` | 520 (ditolak) |
+| `/package.json`, `/cron-agc`, `/scripts/agc.mjs`, `/tsconfig.json`, `/generated-icon.png` | 200 **tapi isinya shell SPA 10.302 byte, bukan filenya** |
+
+Pelajaran dari tabel ini: **HTTP 200 bukan berarti file itu bocor.** Reverse
+proxy di depannya ada yang mengembalikan `index.html` untuk semua path yang tidak
+cocok, jadi banyak file "200" yang sebenarnya tidak pernah dibaca. Yang
+membedakan: `Content-Type` + isi body. Body `.env` 1.395 byte `text/html`
+error page Apache, sama sekali bukan `KEY=...`.
+
+**Yang benar-benar bocor adalah isi artikelnya, bukan filenya.** Korpus
+first-party memuat data yang tidak pantas tayang, dan AGC menerbitkannya:
+
+- **5 domain tenant lain** di akun hosting yang sama: `order.solveit.my.id`,
+  `bebas.websolusi.com`, `pay.websolusi.com`, `presta.websolusi.com`,
+  `order.websolusi.com`. Ini kebocoran serius - nama bisnis orang lain, plus
+  memberitahu penyerang domain mana yang berbagi akun dengan kita.
+- Path akun `/home/solveitm/...` di artikel id 9.
+- Nama database `solveitm_*` - **12 nama**, tapi **di korpus, bukan di artikel
+  yang tayang.** Lihat koreksi di bawah; klaim awal saya salah.
+
+**False positive yang hampir saya laporkan sebagai bocoran.** Angka
+`13.505.892.352` dan `2.147.483.648` terbaca seperti IP address, padahal itu
+ukuran berkas dengan pemisah titik ala Indonesia. Aturan deteksi wajib memvalidasi
+**tiap oktet 0-255**, bukan cuma pola `\d+\.\d+\.\d+\.\d+`. Kalau tidak, redactor
+akan menandai angka bisnis yang sah dan teaches kita bahwa alatnya berantakan.
+
+**Batas yang diminta pengguna:** opsi 1 - hapus domain tenant dan path akun,
+**nama database tetap tayang**. Alasannya masuk akal dan saya tulis di kode:
+nilai teknis itulah yang jadi bukti datanya riil, dan nama database berbeda
+dengan password - tidak bisa dipakai login. Yang bocor adalah *tenant lain* dan
+*path*, bukan nama database kita sendiri.
+
+**Empat anak tangga, dan dua di antaranya baru lahir karena kejadian ini:**
+
+```
+sumber (korpus) → prompt → REDAKSI → validator → UPDATE
+```
+
+Redaksi **sebelum** validator. Kalau dibalik, validator menilai draft bocor
+sebagai "layak" karena yang dijawabnya "bagus?", bukan "aman tayang?".
+
+**Redactor hanya bisa menghapus yang diketahuinya; karena itu daftar tidak pernah
+cukup.** `scripts/private-terms.txt` berisi daftar yang bisa diubah pemilik akun
+tanpa menyentuh kode (aturan 7.1: yang tahu, bukan yang menulis kode). Tapi
+email dan IP tidak bisa redden dari daftar, jadi `findLeaks()` memeriksa
+kategori yang tidak mungkin ada isinya di artikel. Redaksi menghapus, deteksi
+melaporkan - dua fungsi berbeda, dan tidak saling menggantikan.
+
+**Dua bug yang hanya ketahuan karena diuji, bukan karena dibaca.**
+
+1. `/(?i)\b(password)\b/` - **inline flag `(?i)` tidak valid di JavaScript.**
+   Itu gaya Python/PCRE. Di Node dia bikin `SyntaxError`, jadi **seluruh
+   `agc.mjs` gagal dimuat** dan cron akan gagal di setiap eksekusi. Bloiknya
+   benar, karakternya salah. Diganti jadi `/\b(password)\b/i`. Ini bug yang
+   paling berbahaya di daftar ini karena statusnya tetap "hijau": file ter-upload,
+   ukuran file masuk, tidak ada error yang terlihat sampai cron berjalan.
+2. **Urutan proteksi domain sendiri menyembunyikan domain tenant.**
+   `split("websolusi.com")` lebih dulu mengubah `pay.websolusi.com` jadi
+   `pay.@@OWNDOMAIN@@`, sehingga regex tenant tidak pernah melihatnya - dan 5
+   domain bocor lolos begitu saja, tepat seperti semula. Diperbaiki dengan
+   negative lookbehind `(?<![a-z0-9-]\.)`, jadi domain milik kita dilindungi
+   **hanya kalau tidak Ekor label lain**.
+
+Bug kedua lebih menarik: logika "lindungi milik saya dulu" itu
+*benar secara tertulis*, tapi ia menetralkan persis kontrol yang ingin dituju. Pengujian
+redactor terhadap string yang benar-benar bocor adalah satu-satunya cara
+menangkapnya; membaca kode tidak akan.
+
+**Duplikasi pada kontrol keamanan adalah kebocoran yang menunggu waktu.** Setelah
+redactor benar di `agc.mjs`, saya butuh juga alat untuk artikel yang **sudah
+tayang** - dan `agc.mjs` tidak bisa menutupi artikel lama karena ia hanya
+menyentuh placeholder. godaan: tulis ulang `redact()` di skrip kedua.
+Ditolak. Diekstrak jadi `scripts/redact.mjs`, diimpor keduanya. Kalau tidak,
+kedua salinan pasti berbeda versinya suatu saat, dan perbedaan pada fungsi
+inilah yang berarti artikel bocor.
+
+**Alat backfill default-nya report-only.** `redact-existing.mjs` tanpa `--apply`
+hanya melaporkan; menulis butuh `--apply` eksplisit, supaya salah ketik tidak
+merusak konten live. Dan **slug tidak pernah disentuh**: slug adalah bagian dari
+URL publik, mengubahnya memutus backlink dan ranking yang sudah didapat. Perbaikan
+ini substitute string, bukan regenerasi - tidak perlu `--force`, tidak perlu
+kuota Gemini, tidak kehilangan sejarah SEO.
+
+**Hasil akhir, diukur dari luar:**
+
+```
+artikel publik: 3
+placeholder   : 0 dari 3
+tenant domain : 0
+path server   : 0
+email / IP    : 0
+kredensial    : 0
+id 9: 8.649 karakter, 5 heading -> 5 <h2> di SSR, 1.166 kata, slug tetap
+```
+
+**`.env` diketatkan ke `0600`.** Semula `0644` di shared host - bisa dibaca
+semua user di server itu. Tidak bocor lewat HTTP, tapi tetap file rahasia yang
+terbaca tetangganya.
+
+### X. Menutup Kebocoran yang Sudah Terjadi, dan yang Masih Akan Terjadi (2026-10-03 malam)
+
+**Pertanyaan pengguna: "data saya yang sudah bocor, nasibnya bagaimana?"**
+
+Jawabannya tidak menyenangkan tapi penting: **data yang sudah bocor tidak bisa
+dikembalikan.** Tidak ada tombol "un-bocor". Yang bisa dilakukan hanya assessing
+risiko, lalu menutup sumbernya. Dan assessment-nya lebih ringan dari yang feared:
+
+| Yang bocor | Bisa diubah? | Tindakan |
+| :--- | :--- | :--- |
+| 5 domain tenant lain | tidak - milik orang lain | tidak bisa dirotasi |
+| path `/home/solveitm` | tidak | tidak bisa dirotasi |
+| nama DB `solveitm_*` | tidak | tidak ada |
+| **kredensial / `.env`** | **tidak bocor** (403, mode `0600`) | **tidak ada yang perlu dirotasi** |
+
+Domain dan path itu bukan rahasia - tidak ada "ganti password" untuk nama domain
+milik orang lain. Satu-satunya tempat salinannya masih hidup adalah cache mesin
+pencari dan log provider AI. Saya search string `/home/solveitm` dan kelima
+domain itu: **tidak ada hasil yang memuatnya**, jadi kemungkinan besar belum
+terindeks. Bagus, tapi tidak bisa dijamin. Yang bisa dilakukan sewaktu-waktu:
+jawaban "tidak ditemukan" itu tidak berlaku selamanya.
+
+**Koreksi atas klaim saya sendiri.** Catatan sebelumnya menulis "nama database
+bocor di artikel id 2 dan 6". Itu **salah**. Bukti: `redact-existing.mjs` dalam
+mode reportief_unique_rd_8080bdbdb2c scan 9 artikel dan melaporkan `0 need redaction, 9 already clean`; scan API
+langsung juga 0 hit `solveitm_`. Nama
+database-nya **memang ada, tapi di `content-corpus/*.md`** - 12 nama - yang belum
+pernah tayang. Saya sebelumnya salah mengaitkan isi korpus dengan isi artikel
+live. Pelajarannya sama seperti bagian 5U: **verifikasi klaim dari sumbernya, jangan
+dari ingatan percakapan.**
+
+**Yang benar-benar bocor berulang: corpus terkirim mentah ke Gemini.** Redaksi
+saya pasang di sisi output (sebelum CMS), tapi `buildUserPrompt()` tetap
+mengirim `corpus.body` apa adanya ke `generativelanguage.googleapis.com` pada
+setiap cron 04:23 dan 16:23. Artinya 5 domain tenant, path akun, dan 12 nama
+database **keluar ke Google terus-menerus**, padahal artikelnya sudah bersih.
+Menutup sisi output tanpa menutup sisi input itu setengah pekerjaan yang terlihat
+beres. `loadCorpus()` sekarang memanggil `redact()` yang sama sebelum corpus
+dipakai, dan daftar 25 istilah itu sendiri yang jadi bukti:
+
+```
+corpus masked before upload: 25 private term(s) -> bebas.websolusi.com,
+bebas.solveit.my.id, /home/solveitm, solveitm_order, solveitm_presta,
+solveitm_mms, solveitm_blesta, solveitm_billing, solveitm_roun568,
+solveitm_wp386, solveitm_websolusi, presta.websolusi.com,
+order.solveit.my.id, solveitm_wp94, ipv6.websolusi.com, a.b.websolusi.com,
+mail.websolusi.com, bounce.websolusi.com, wa.solveit.my.id,
+solveitm_sekolah, solveitm_surat, solveitm_blogs_db2, ghost.solveit.my.id,
+order.websolusi.com, pay.websolusi.com
+```
+
+**Bukti bahwa aturan bentuk mengalahkan daftar.** `private-terms.txt` cuma berisi 7
+domain, tapi yang terdeteksi **25 istilah**. Sisanya datang dari aturan bentuk:
+`ipv6.`, `a.b.`, `bounce.`, `wa.solveit.my.id`, `ghost.solveit.my.id`,
+`bebas.solveit.my.id`. Kalau daftar literal adalah satu-satunya kontrol, enam
+domain itu lolos. Aturan bentuk menutup celah yang tidak bisa ditutup daftar.
+
+**Kebijakan nama DB berubah, jadi aturannya berubah bentuk.**,omitempty
+Awalnya `solveitm` sengaja **tidak** ada di `private-terms.txt` supaya nama
+database tetap tayang sebagai bukti data riil. Pengguna memutuskan berubah
+pikiran. Daftarnya tidak perlu diperbarui - cukup `DB_NAME_PREFIX = "solveitm_"`
+dan `redact()` akan menutup `solveitm_nama_baru` yang dibuat besok, tanpa
+siapa pun menyentuh file.
+
+**Bug ketiga, ketemu karena harness menulis ulang dirinya sendiri.** Harness test
+lama **menyalin** logika `redact()` dan `LEAK_RULES` ke dalam dirinya, dengan
+alasan "meniru logika dari agc.mjs". Padahal itu berarti bug di `redact.mjs`
+asli **tidak akan pernah gagal** - yang diuji salinannya, bukan kontrol
+keamanannya. Sekarang harness meng-`import` modul asli.
+
+Dan begitu modul asli diuji langsung, dua kegagalan muncul:
+
+- **Aturan path tidak mencatat hit.** `out.replace(pathRe, PLACEHOLDER)` tanpa
+  `hits.push(...)`. Akibatnya `redact-existing.mjs` mencetak masking path sebagai
+  `UNKNOWN leak` - bahasanya "redactor tidak tahu soal ini", padahal kebenaran
+  "redactor sudah tangani, diam-diam". Alat yang bekerja tapi **berbohong tentang
+  apa yang ia lakukan** lebih berbahaya dari alat yang gagal, karena laporan itu
+  jadi dasar keputusan.
+- **Uji korpus awalnya salah** karena saya menulis placeholder `TOKEN_PADA_DOMAIN_MENGGANTIKAN_URL`
+  alih-alih domain asli, jadi tidak ada yang bisa kena. Uji yang memakai data karangan tidak menguji apa pun. Sekarang
+  memakai string yang benar-benar keluar dari situs.
+
+**27 kasus, semua lulus** - 7 domain tenant, 3 path, 4 nama DB, plus[key]
+representasi yang harus tetap utuh (`websolusi.com`, `13.505.892.352`,
+`11.4.13-MariaDB-cll-lve-log`, `LVE 2048 MB`).
+
+**Cron yang saya kira sudah dihapus ternyata masih jalan.** `list_cron_jobs`
+menampilkan `cron-redact --apply` dengan jadwal `* * * * *` - **setiap menit**. Sesi
+sebelunya menghapus cron backfill (linekey `3856818478`) dan mencatat "cron ikut dibersihkan", tapi cron kedua dengan linekey `3833010716` tertinggal.
+Karena backfill itu idempoten tidak merusak apa pun, tapi ini persis bug yang
+sudah ditulis di bagian V: **menghapus script tidak menghapus cron-nya**, dan
+variasinya lebih buruk - **cron pun tidak ikut terhapus.**
+Daftar cron produksi yang benar tinggal satu: `1814907150` (`cron-agc`, 04:23 dan
+16:23).
+
+**Hasil akhir, diukur dari luar:**
+
+```
+artikel published : 3 (id 2, 6, 9)
+tenant domain     : 0
+path server       : 0
+nama database     : 0
+email / IP        : 0
+SSR id 9          : 200, 13.473 byte, 1 h1, 5 h2, canonical + JSON-LD + OG
+sitemap           : 5 URL (home, blog, 3 artikel)
+redact.mjs        : SYNTAX OK (node --check)
+agc.mjs           : SYNTAX OK (node --check)
+backfill report   : 0 need redaction, 9 already clean
+```
 
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
