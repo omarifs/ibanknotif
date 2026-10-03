@@ -805,7 +805,7 @@ class AiConfigTest {
         for (nakal in listOf("../v1/models/x", "gemini?key=abc", "gemini/flash",
                             "GEMINI-FLASH", "", "   ", "x".repeat(65))) {
             val a = AiConfig.fromJson(
-                org.json.JSONObject("""{"model":${org.json.JSONObject.quote(nakil)}}""")
+                org.json.JSONObject("""{"model":${org.json.JSONObject.quote(nakal)}}""")
             )
             assertEquals("model nakal harus ditolak: '$nakal'",
                 AiConfig.DEFAULT_MODEL, a.model)
