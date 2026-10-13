@@ -9,6 +9,7 @@ object Config {
     private const val PREF = "ibanknotif"
     private const val KEY_ENDPOINT = "endpoint"
     private const val KEY_CHAT_ID = "chat_id"
+    private const val KEY_DEVICE_ACCOUNT = "device_account"
     private const val KEY_BCA = "bank_bca"
     private const val KEY_MANDIRI = "bank_mandiri"
     private const val KEY_BRI = "bank_bri"
@@ -25,6 +26,15 @@ object Config {
 
     fun chatId(ctx: Context): Long =
         prefs(ctx).getLong(KEY_CHAT_ID, -1002031892399)
+
+    fun deviceAccount(ctx: Context): String? =
+        prefs(ctx).getString(KEY_DEVICE_ACCOUNT, null)?.trim()?.ifBlank { null }
+
+    fun setDeviceAccount(ctx: Context, id: String) {
+        val v = id.trim()
+        if (v.isBlank()) prefs(ctx).edit().remove(KEY_DEVICE_ACCOUNT).apply()
+        else prefs(ctx).edit().putString(KEY_DEVICE_ACCOUNT, v).apply()
+    }
 
     fun bankLabel(pkg: String): String? = PatternStore.bankLabel(pkg)
 

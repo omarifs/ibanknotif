@@ -126,7 +126,7 @@ class NotifService : NotificationListenerService() {
             Config.appendLog(this, "SKIP (TIDAK ADA NOMINAL): $fullText")
             return
         }
-        val decision = RuleEngine.decide(parsed, rules)
+        val decision = RuleEngine.decide(parsed, rules, Config.deviceAccount(this))
         if (decision.outcome == null) {
             val alasan = if (decision.stoppedBy != null) "diam: ${decision.stoppedBy.name}" else "tidak ada aturan yang cocok"
             Config.appendLog(this, "SKIP ($alasan): $fullText")

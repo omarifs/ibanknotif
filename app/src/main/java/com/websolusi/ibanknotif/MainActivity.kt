@@ -21,6 +21,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var etEndpoint: TextInputEditText
     private lateinit var etChatId: TextInputEditText
+    private lateinit var etDeviceAccount: TextInputEditText
     private lateinit var etApiKey: TextInputEditText
     private lateinit var etCustomPrompt: TextInputEditText
     private lateinit var cbBca: MaterialCheckBox
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
         etEndpoint = findViewById(R.id.etEndpoint)
         etChatId = findViewById(R.id.etChatId)
+        etDeviceAccount = findViewById(R.id.etDeviceAccount)
         etApiKey = findViewById(R.id.etApiKey)
         etCustomPrompt = findViewById(R.id.etCustomPrompt)
         cbBca = findViewById(R.id.cbBca)
@@ -120,7 +122,7 @@ class MainActivity : AppCompatActivity() {
                     notifs.forEachIndexed { i, (bank, n, _) ->
                         val full = "${n.title} ${n.text} ${n.bigText ?: ""}"
                         val parsed = Parser.parseByBank(bank, full) ?: return@forEachIndexed
-                        val d = RuleEngine.decide(parsed, rules)
+                        val d = RuleEngine.decide(parsed, rules, Config.deviceAccount(this))
                         when {
                             d.outcome != null -> res[i] = AiResult(
                                 bank = bank, amount = parsed.amount, direction = d.outcome.direction,
@@ -225,6 +227,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadConfig() {
         etEndpoint.setText(Config.endpoint(this))
         etChatId.setText(Config.chatId(this).toString())
+        etDeviceAccount.setText(Config.deviceAccount(this) ?: "")
         etApiKey.setText(Learning.apiKey(this))
         etCustomPrompt.setText(Learning.customPrompt(this))
         cbBca.isChecked = true
@@ -236,6 +239,7 @@ class MainActivity : AppCompatActivity() {
         val endpoint = etEndpoint.text?.toString()?.trim() ?: ""
         val chatId = etChatId.text?.toString()?.trim()?.toLongOrNull() ?: -1002031892399
         Config.save(this, endpoint, chatId, cbBca.isChecked, cbMandiri.isChecked, cbBri.isChecked)
+        Config.setDeviceAccount(this, etDeviceAccount.text?.toString() ?: "")
         Learning.saveApiKey(this, etApiKey.text?.toString() ?: "")
         Learning.saveCustomPrompt(this, etCustomPrompt.text?.toString() ?: "")
     }
@@ -278,7 +282,7 @@ class MainActivity : AppCompatActivity() {
             for (n in bankSamples()) {
                 val bank = Config.bankLabel(n.pkg) ?: continue
                 val parsed = Parser.parseByBank(bank, fullText(n)) ?: continue
-                lines.add(RuleEngine.explain(parsed, set))
+                lines.add(RuleEngine.explain(parsed, set, Config.deviceAccount(this)))
             }
             if (lines.isEmpty()) {
                 lines.add("Tidak ada notifikasi bank aktif untuk diuji.")
@@ -409,7 +413,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val rules = RuleStore.load(this)
-        val outcome = parsed.joinToString("\n\n") { RuleEngine.explain(it, rules) }
+        val outcome = parsed.joinToString("\n\n") { RuleEngine.explain(it, rules, Config.deviceAccount(this)) }
 
         Toast.makeText(this, "Gemini menganalisis ${parsed.size} notif...", Toast.LENGTH_SHORT).show()
         Thread {

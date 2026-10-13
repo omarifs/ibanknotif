@@ -142,8 +142,12 @@ class ParserTest {
          * Notifikasi BRImo bentuk kaya, transkrip dari tangkapan layar HP vidha.
          * Satu cacat notifikasi ini yang tidak bisa diatasi oleh aturan: rekening
          * `0102 **** **** 530` hanya menampakkan TIGA digit terakhir, sedangkan
-         * peta rekening memakai empat. Jadi tidak ada akun yang bisa ditentukan,
-         * dan aturannya harus diam, bukan menebak.
+         * peta rekening memakai empat. Jadi tidak ada akun yang bisa ditentukan
+         * dari angkanya.
+         *
+         * Yang tersisa cuma nama pemilik di notif, dan itu yang dipakai aturan
+         * `bri-ewallet-tanpa-rekening-pemilik-vidha`. Bukan `defaultId`, yang 5L
+         * tolak justru karena menebak benar di satu HP dan pasti salah di HP lain.
          *
          * Waktu eventnya ditulis panjang (`28 September 2026, 07:36:51 WIB`);
          * itu ditangani di [Parser.transactionSignature] dengan menormalkan ke
@@ -165,6 +169,49 @@ class ParserTest {
                 "Nominal Rp200.000 " +
                 "Biaya Admin Rp0 " +
                 "Total Transaksi Rp200.000"
+
+        /**
+         * Bentuk BRImo untuk QRIS transfer: asal rekening disebut, rekening
+         * tujuan tidak. Tanpa aturan `bri-qris-transfer-dana-keluar` (prio 92)
+         * notif ini tertahan aturan diam prio 80, padahal tidak ada notif
+         * pasangan dari sisi penerima seperti pada transfer antar rekening.
+         *
+         * **INI KARANGAN, bukan transkrip tangkapan layar.** Bentuk aslinya belum
+         * pernah dilihat. Ganti dengan teks asli begitu notif QRIS sungguhan
+         * muncul di log - contoh karangan tidak menangkap variasi yang sebenarnya
+         * terjadi, dan itu sebabnya [TOPUP_SHOPEEPAY_RIWAYAT] di atas perlu
+         * transkrip asli.
+         */
+        const val QRIS_TRANSFER_KARANGAN =
+            "05/10/2026 10:21:18 - Transfer QRIS ke TOKO SEJAHTERA Berhasil. " +
+                "Nominal Rp75.000 dari rekening 0102001234568533"
+
+        /**
+         * Bentuk BRImo yang sama untuk rekening ibu: `0102 **** **** 533` adalah
+         * tiga digit terakhir dari 8533, dan pem pilotedirect-nya adalah
+         * "NURHASANAH" (lihat `LOG-PROYEK.md` 5L: notif dengan `KET: NBMB
+         * MUFIDATUL UMMA TO NURHASANAH` tercatat sebagai `/tabin bri.ibu`).
+         *
+         * **INI TURUNAN dari [TOPUP_SHOPEEPAY_RIWAYAT], bukan transkrip tangkapan
+         * layar HP ibu.** Yang diganti hanya nama dan tiga digit rekeningnya.
+         * Bentuk BRImo yang lain belum pernah terlihat di HP itu.
+         */
+        const val TOPUP_IBU_RIWAYAT =
+            "Bank BRI Top Up ShopeePay Berhasil Top Up ShopeePay Berhasil " +
+                "Halo, NURHASANAH " +
+                "Berikut ini adalah informasi transaksi yang telah Anda lakukan di Aplikasi BRImo. " +
+                "05 Oktober 2026, 10:21:18 WIB " +
+                "Top Up ShopeePay Berhasil " +
+                "Total Transaksi Rp250.000 " +
+                "No. Ref 225768447801 " +
+                "NURHASANAH " +
+                "BANK BRI 0102 **** **** 533 " +
+                "ShopeePay NURXXXXXX ANXX 081234567890 " +
+                "Jenis Transaksi ShopeePay " +
+                "Catatan - " +
+                "Nominal Rp250.000 " +
+                "Biaya Admin Rp0 " +
+                "Total Transaksi Rp250.000"
     }
 }
 
@@ -249,8 +296,78 @@ class RuleEngineTest {
     }
 
     @Test
-    fun `notif riwayat BRImo hanya menampakkan tiga digit terakhir tidak dicatat`() {
-        assertNull(run("bri", ParserTest.TOPUP_SHOPEEPAY_RIWAYAT))
+    fun `top up shopeepay tanpa rekening pakai akun default perangkat`() {
+        // Notif pendek ini tidak memuat rekening maupun nama, jadi satu-satunya
+        // pembeda tinggal perangkat. Akun default disimpan per-HP, bukan di
+        // rules.json, supaya tarikan aturan dari server tetap jalan.
+        val t = "02/09/2026 12:10:19 - Transaksi Top Up ShopeePay 083124253640 sebesar Rp200.000,00 BERHASIL. Info lebih lanjut hubungi Call Center BRI 1500017"
+        val parsed = Parser.parseByBank("bri", t)!!
+        assertEquals("/tabout bri.ibu 200000", RuleEngine.evaluate(parsed, rules, "bri.ibu")?.command)
+        assertEquals("/tabout bri.vidha 200000", RuleEngine.evaluate(parsed, rules, "bri.vidha")?.command)
+    }
+
+    @Test
+    fun `akun default perangkat tidak menimpa notif yang rekeningnya terbaca`() {
+        val parsed = Parser.parseByBank("bri", ParserTest.PINDAHIN_8533_5530)!!
+        assertEquals("/pindahin bri.ibu bri.vidha 100000", RuleEngine.evaluate(parsed, rules, "bri.vidha")?.command)
+    }
+
+    @Test
+    fun `notif riwayat BRImo tanpa rekening tapi namanya vidha jadi tabout vidha`() {
+        // Rekening `0102 **** **** 530` cuma menampakkan tiga digit, jadi peta
+        // rekening 4 digit tidak mungkin cocok. Satu-satunya bukti yang tersisa
+        // adalah nama pemilik di notif, jadi itu yang jadi penentu.
+        assertEquals("/tabout bri.vidha 200000", run("bri", ParserTest.TOPUP_SHOPEEPAY_RIWAYAT))
+    }
+
+    @Test
+    fun `nama vidha tidak membayangi aturan yang rekeningnya terbaca`() {
+        // Penjaga `neither_account_known`. Tanpa penjaga ini, notif yang menyebut
+        // rekening sendiri akan ditulis ulang jadi pengeluaran vidha.
+        val t = "03/09/2026 07:12:49 - Transfer dari XXXXXXXXXX5530 dengan nomor " +
+            "rekening tujuan XXXXXXXXXX8533 sebesar Rp100.000,00 BERHASIL. Halo, MUFIDATUL UMMAH"
+        assertEquals("/pindahin bri.vidha bri.ibu 100000", run("bri", t))
+    }
+
+    @Test
+    fun `dana masuk e-wallet tanpa rekening tetap diam bukan jadi tabout`() {
+        // Penjaga `has_none`. Refund atau pencairan ShopeePay akan salah arah -
+        // tercatat sebagai pengeluaran - kalau ikut kena aturan yang sama.
+        val t = "Halo, MUFIDATUL UMMAH Dana Rp200.000 masuk dari ShopeePay pada " +
+            "05/10/2026 10:21:18 KET:X"
+        assertNull(run("bri", t))
+    }
+
+    @Test
+    fun `qris transfer dari rekening sendiri jadi tabout bukan tertahan diam`() {
+        // Tanpa aturan prio 92, notif ini tertahan `bri-transfer-tanpa-tujuan-dibaca-diam`
+        // (prio 80) karena asalnya rekening sendiri tapi tujuan tidak disebut.
+        // QRIS tidak punya notif pasangan dari sisi penerima, jadi tidak ada yang
+        // akan mencatat kalau aturannya diam.
+        assertEquals("/tabout bri.ibu 75000", run("bri", ParserTest.QRIS_TRANSFER_KARANGAN))
+    }
+
+    @Test
+    fun `qris transfer dari rekening vidha tetap milik vidha`() {
+        val t = "05/10/2026 10:21:18 - Transfer QRIS ke TOKO SEJAHTERA Berhasil. " +
+            "Nominal Rp75.000 dari rekening 0102001234565530"
+        assertEquals("/tabout bri.vidha 75000", run("bri", t))
+    }
+
+    @Test
+    fun `qris masuk dari luar bukan pengeluaran`() {
+        val t = "05/10/2026 10:21:18 - Dana Rp75.000 masuk dari QRIS ke rekening " +
+            "000000000008533 BERHASIL."
+        assertEquals("/tabin bri.ibu 75000", run("bri", t))
+    }
+
+    @Test
+    fun `transfer biasa tanpa tujuan tetap diam agar tidak dobel`() {
+        // Penjaga aturan prio 92: bukan QRIS, jadi aturan diam prio 80 tetap
+        // memegang. Inilah yang mencegah satu transfer jadi /pindahin + /tabout.
+        val t = "05/10/2026 10:21:18 - Transfer dari rekening 0102001234568533 " +
+            "sebesar Rp75.000,00 BERHASIL."
+        assertNull(run("bri", t))
     }
 
     @Test
@@ -283,6 +400,58 @@ class RuleEngineTest {
     fun `transfer masuk tanpa asal terbaca diam agar tidak dobel`() {
         val t = "03/09/2026 07:12:49 - Transfer masuk ke rekening 000000000008533 Rp100.000,00 BERHASIL."
         assertNull(run("bri", t))
+    }
+
+    @Test
+    fun `struk BRImo tanpa rekening tapi namanya ibu jadi tabout ibu`() {
+        // Simetrisnya aturan vidha, untuk rekening 8533.
+        assertEquals("/tabout bri.ibu 250000", run("bri", ParserTest.TOPUP_IBU_RIWAYAT))
+    }
+
+    @Test
+    fun `nama ibu tanpa sapaan halo tetap diam`() {
+        // Penjaga `has:halo`. `KET: NBMB MUFIDATUL UMMA TO NURHASANAH` memuat
+        // KEDUA nama pemilik, jadi nama saja tidak bisa membedakan whose notif.
+        // Sapaan "Halo, ..." di struk BRImo yang memisahkan keduanya.
+        val t = "Top Up ShopeePay atas nama NURHASANAH Rp200.000 pada " +
+            "05/10/2026 10:21:18"
+        assertNull(run("bri", t))
+    }
+
+    @Test
+    fun `ket yang memuat dua nama tidak menghasilkan apa pun`() {
+        // Notif transfer antar rekening yang field KET-nya memuat pengirim dan
+        // penerima sekaligus. Rekeningnya tidak terbaca di sini, jadi penjaga
+        // `has:halo` satu-satunya yang menahannya - dan itu memang tujuannya.
+        val t = "Halo, MUFIDATUL UMMAH Dana Rp100.000 KET:NBMB MUFIDATUL UMMA TO " +
+            "NURHASANAH pada 05/10/2026 10:21:18"
+        assertNull(run("bri", t))
+    }
+
+    @Test
+    fun `ewallet dengan rekening asal terbaca tidak butuh nama`() {
+        // Lapis kedua dari yang berlaku: kalau notif menyebut rekening asal, akun
+        // ikut terbaca dari `accounts` dan tidak ada tebakan sama sekali.
+        // Aturan 92 yang bekerja di sini, bukan yang berbasis nama.
+        val t = "05/10/2026 10:21:18 - Top Up ShopeePay Berhasil. " +
+            "Nominal Rp120.000 dari rekening 0102001234565530"
+        assertEquals("/tabout bri.vidha 120000", run("bri", t))
+    }
+
+    @Test
+    fun `tiga rumusan QRIS berbeda semuanya jadi pengeluaran`() {
+        // Fixture aslinya masih karangan (lihat QRIS_TRANSFER_KARANGAN). Yang
+        // diuji di sini justru daftar kata kuncinya: selama notif memuat salah
+        // satu dari kata itu, aturan 92 tetap kena tanpa perlu tahu rumusannya.
+        val heads = listOf(
+            "Transfer QRIS ke TOKO SEJAHTERA Berhasil.",
+            "Pembayaran QRIS Berhasil.",
+            "Scan QRIS Berhasil."
+        )
+        for (h in heads) {
+            val t = "05/10/2026 10:21:18 - $h Nominal Rp75.000 dari rekening 0102001234568533"
+            assertEquals("gagal pada: $h", "/tabout bri.ibu 75000", run("bri", t))
+        }
     }
 
     @Test

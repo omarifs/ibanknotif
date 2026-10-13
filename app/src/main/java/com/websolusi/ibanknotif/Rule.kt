@@ -31,7 +31,7 @@ data class Rule(
         conditions.all { RuleSet.holds(it, tx, accounts) }
 
     /** Ganti placeholder dengan nilai nyata. Null kalau placeholder tak terpenuhi. */
-    fun render(tx: Parsed, accounts: Map<String, String>): String? {
+    fun render(tx: Parsed, accounts: Map<String, String>, deviceDefault: String? = null): String? {
         if (stop) return ""
         val srcId = tx.source?.let { accounts[it] }
         val dstId = tx.destination?.let { accounts[it] }
@@ -40,7 +40,8 @@ data class Rule(
         if (out.contains("{src}") && srcId == null) return null
         if (out.contains("{dst}") && dstId == null) return null
         if (out.contains("{id}")) {
-            val primary = (if (direction() == "in") dstId else (srcId ?: dstId)) ?: defaultId ?: return null
+            val primary = (if (direction() == "in") dstId else (srcId ?: dstId))
+                ?: defaultId ?: deviceDefault ?: return null
             out = out.replace("{id}", primary)
         }
         out = out.replace("{src}", srcId ?: "").replace("{dst}", dstId ?: "").replace("{amount}", tx.amount.toString())

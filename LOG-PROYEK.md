@@ -1094,6 +1094,298 @@ callers"`), sedangkan key-nya ada di HP, bukan di repo. Kalau ternyata salah,
 log baris baru `GEMINI ERR $code [model $model]:` langsung menyebut model yang
 ditolak, dan itu justru bukti bahwa pencatatan model itu berguna.
 
+### V. Notif BRImo Tanpa Rekening: Tiga Aturan Baru, Tanpa Build (2026-10-05)
+
+**Gejala 1.** Top up ShopeePay Rp 200.000 di HP vidha tidak tercatat sama sekali.
+Baris log (di dalam aplikasi, bukan dari shade):
+
+```
+SKIP (diam: diam: notif BRI tanpa rekening milik sendiri yang terbaca): Bank BRI
+Top Up ShopeePay Berhasil Top Up ShopeePay Berhasil Halo, MUFIDATUL UMMAH
+Berikut ini adalah informasi transaksi yang telah Anda lakukan di Aplikasi BRImo.
+05 Oktober 2026, 10:21:18 WIB Total Transaksi Rp200.000 No. Ref 225768447800
+MUFIDATUL UMMAH BANK BRI 0102 **** **** 530 ShopeePay MUFXXXXXX UMMXX
+083124253640 Jenis Transaksi ShopeePay Catatan - Nominal Rp200.000 Biaya Admin Rp0
+```
+
+**Gejala 2.** QRIS transfer **tertahan** - berhenti di aturan `diam` yang
+berhenti setelah matched, jadi bukan "tidak ada aturan yang cocok".
+
+**Akar, dua kasus yang sebelumnya dianggap satu.** Keduanya berakhir di
+`neither_account_known` (prio 60, `stop: true`), tapi penyebabnya beda dan
+perbaikannya juga beda:
+
+| Kasus | Rekening asal | Rekening tujuan | Yang menahan | Kenapa beda |
+| :--- | :--- | :--- | :--- | :--- |
+| QRIS transfer | terbaca, milik sendiri | tidak disebut | prio 80 `bri-transfer-tanpa-tujuan-dibaca-diam` | transfer antar rekening punya notif **pasangan** di sisi penerima, jadi cukup diam. QRIS ke merchant **tidak punya** notif pasangan - tidak ada yang akan mencatat, uangnya hilang |
+| Top up BRImo bentuk kaya | **`0102 **** **** 530`** - hanya 3 digit | tidak disebut | prio 60 `bri-diam-tanpa-rekening-terbaca` | peta `accounts` memakai 4 digit, `maskedLast4` butuh `(\d{4})`, jadi nol yang cocok |
+
+**Kenapa kasus pertama malah tertahan justru karena keputusannya sendiri sudah
+benar.** Aturan diam prio 80 dibuat supaya satu transfer tidak jadi `/pindahin` **dan** `/tabout`.
+Syaratnya "ada notif pasangan". QRIS ke merchant tidak punya pasangan, jadi
+syarat itu tidak berlaku - tapi aturan diam tidak bisa membedakan keduanya,
+karena kosakata tertutup tidak punya token "notifikasi pasangan untuk tipe ini
+saja". Yang bisa: aturan QRIS dinaikkan ke atas diam, dengan syarat yang tidak
+bisa dipenuhi transfer biasa.
+
+**Kenapa kasus kedua tidak bisa lewat `patterns.json`.** 5N sudah menyimpulkan:
+regex tidak bisa membawa artinya "ini rekening vidha". Yang precisam diperluas
+adalah **peta** rekening, bukan polanya - dan pola dari server tidak bisa
+menyentuhnya karena uji paritas: probe `riwayat BRImo 3 digit` akan berubah dari
+`null` jadi `530`, jadi pola itu ditolak. `patterns.json` sengaja tidak
+disentuh sama sekali.
+
+**Tiga aturan baru, `rules.json` v7 -> v9. Tidak ada build.** v8 menambah satu
+aturan, v9 melengkapinya ke dua rekening.
+
+```json
+{
+  "id": "bri-qris-transfer-dana-keluar",
+  "name": "QRIS / e-wallet: dana keluar dari rekening sendiri, tujuan tidak disebut",
+  "bank": "bri", "priority": 92, "enabled": true,
+  "when": [
+    "src_own",
+    "not:dst_known",
+    "has_any:qris|qr|qr code|kode qr|scan qr|scan qrcode|shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|ewallet|e-wallet|dompet",
+    "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+  ],
+  "command": "/tabout {id} {amount}"
+}
+{
+  "id": "bri-ewallet-tanpa-rekening-pemilik-vidha",
+  "name": "top up e-wallet tanpa rekening terbaca: pemilik di notif = vidha",
+  "bank": "bri", "priority": 65, "enabled": true,
+  "when": [
+    "neither_account_known",
+    "has:halo",
+    "has:mufidatul ummah",
+    "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+    "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+  ],
+  "command": "/tabout bri.vidha {amount}"
+}
+{
+  "id": "bri-ewallet-tanpa-rekening-pemilik-ibu",
+  "name": "top up e-wallet tanpa rekening terbaca: pemilik di notif = ibu",
+  "bank": "bri", "priority": 64, "enabled": true,
+  "when": [
+    "neither_account_known",
+    "has:halo",
+    "has:nurhasanah",
+    "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+    "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+  ],
+  "command": "/tabout bri.ibu {amount}"
+}
+```
+
+Letak priority, dari atas:
+
+```
+100  pindahin antar rekening sendiri
+ 95  diam: transfer ke rekening sendiri        (stop)
+ 92  QRIS / e-wallet, dana keluar             <-- BARU
+ 91  dana keluar dari rekening sendiri
+ 90  dana masuk ke rekening sendiri
+ 80  diam: transfer tanpa tujuan terbaca      (stop)
+ 79  diam: transfer masuk tanpa asal terbaca   (stop)
+ 65  e-wallet tanpa rekening, pemilik vidha    <-- BARU
+ 64  e-wallet tanpa rekening, pemilik ibu      <-- BARU
+ 60  diam: BRI tanpa rekening milik sendiri    (stop)
+ 50  top up e-wallet (selalu terhalang diam selama 60 masih aktif)
+ 20  dana masuk (dari kata)
+ 10  dana keluar (dari kata)
+```
+
+**Lima keputusan yang tidak boleh dibalik tanpa alasan.**
+
+1. **`has:<nama lengkap>`, bukan bentuk pendek.** `mufidatul umma` adalah
+   substring dari `KET:… MUFIDATUL UMMA TO NURHASANAH`. Dan `NURHASANAH` ada
+   di string yang **sama** itu - jadi dengan nama saja, notif transfer antar
+   rekening bisa terbaca "dana keluar dari rekening ibu".
+2. **`has:halo` sebagai pemisah.** `Halo, <NAMA>` adalah sapaan struk BRImo dan
+   tidak pernah muncul di field `KET`. Tangkapan layar HP vidha memang memuatnya
+   (`Halo, MUFIDATUL UMMAH`), jadi syarat ini yang membedakan dan bukan tebakan.
+3. **Id literal `bri.vidha` / `bri.ibu`, bukan `{id}` + `defaultId`.** 5L menghapus
+   `defaultId` justru karena tebakannya benar di HP ibu dan pasti salah di HP
+   vidha. `defaultId` bersifat per-file, sedangkan `rules.json` yang sama
+   ditarik kedua HP.
+4. **Penjaga `neither_account_known` di prio 65 dan 64.** Tanpa itu, notif yang
+   menyebut rekening sendiri akan ditulis ulang jadi pengeluaran.
+5. **Penjaga `has_none:masuk|kredit|…` di ketiganya.** Refund atau pencairan
+   ShopeePay akan salah arah - tercatat sebagai pengeluaran - kalau ikut kena
+   aturan yang sama. Gagalnya `diam`, itu perilaku sekarang, jadi penjaga ini
+   tidak menambah risiko baru.
+
+**Dua lapis, dan urutannya penting.** Lapis pertama (structural, tanpa nama):
+kalau notif menyebut rekening asal, akun ikut terbaca dari `accounts` dan prio
+92 yang bekerja - untuk **kedua** rekening dan **kedua** HP. Lapis kedua (nama):
+kalau rekening sama sekali tidak disebut, satu-satunya pembeda tinggal nama
+pemilik di struk BRImo, jadi prio 65 dan 64. Aturan berbasis nama tidak pernah
+dipakai kalau lapis pertama sudah bisa menjawab.
+
+**Nama keduanya memang berbeda, dan itu yang membuat lapis kedua boleh dipakai.**
+Rekening vidha (5530) ada di HP vidha, rekening ibu (8533) ada di HP pemakainya;
+nama BRImo-nya `MUFIDATUL UMMAH` dan `NURHASANAH`. Bukti untuk yang kedua ada di
+5L: notif `KET:NBMB MUFIDATUL UMMA TO NURHASANAH` tercatat sebagai
+`/tabin bri.ibu`, jadi `NURHASANAH` adalah pemilik 8533.
+
+**Vocabulary tetap sah untuk APK tertua.** `has_none:` dan `not:` sudah ada di
+commit pertama `Rule.kt` (`d277193`), bukan tambahan belakangan - dicek dengan
+`git show d277193:…/Rule.kt`. Jadi tidak ada risiko file ditolak oleh validator
+APK lama dan membekukan HP di versi lama (jebakan 5N).
+
+**Test.** `ParserTest.kt`: satu test berubah arah
+(`notif riwayat BRImo hanya menampakkan tiga digit terakhir tidak dicatat` ->
+`…tanpa rekening tapi namanya vidha jadi tabout vidha`, expect
+`/tabout bri.vidha 200000`) karena limitasi 5N itu sekarang memang perilaku yang
+diinginkan, sembilan test baru: penjaga `neither_account_known`, penjaga `has_none`, QRIS
+dari rekening ibu, QRIS dari rekening vidha, QRIS masuk bukan pengeluaran,
+transfer biasa tanpa tujuan yang harus tetap diam, struk BRImo pemilik ibu,
+nama ibu tanpa `Halo` yang harus tetap diam, `KET` dua nama yang harus diam,
+e-wallet yang rekening asalnya terbaca tanpa perlu nama, dan tiga rumusan QRIS
+berbeda yang semuanya harus jadi pengeluaran.
+
+**Verifikasi.** Environment ini tidak punya JDK maupun Android SDK, jadi
+`./gradlew testDebugUnitTest` tidak bisa dijalankan. `Parser`, `RuleSet.holds`,
+`Rule.render`, `isSendable` dan `validateAll` diport ke Python lalu 25 kasus
+dijalankan (25 kasus lama + 6 baru) - semuanya lulus, `validateAll` null.
+**Bentuk, bukan bukti kompilasi.**
+
+**Fixture QRIS masih karangan.** `ParserTest.QRIS_TRANSFER_KARANGAN` bukan
+transkrip tangkapan layar; notif QRIS BRI yang asli belum pernah dilihat, dan
+contoh karangan tidak menangkap variasi yang sebenarnya terjadi (7.12). Begitu
+notif asli muncul di log, ganti fixture itu dan sesuaikan `has_any` - tetap
+tanpa build, karena keduanya cuma data.
+
+**Deploy.** Dua kali: `rules.json.bak-20261005:210452` lalu scp v8, dan
+`rules.json.bak-20261005:213214` lalu scp v9. Curl ke
+`https://tools.websolusi.com/telegram/rules.json` mengembalikan `version: 9`,
+17 aturan, ketiga id baru ada, dan filenya identik byte-per-byte dengan salinan
+repo.
+
+**Langkah WAJIB di HP, urut.** `Learning.match` dievaluasi **sebelum**
+`RuleEngine.decide` (`NotifService.kt:114`), jadi template lama akan menang:
+
+1. Tekan **Bersihkan Hasil Belajar**.
+2. **Aturan -> Tarik**. Kalau muncul "aturan server versi 9 TIDAK ditimpa",
+   berarti ada edit manual di HP itu dan harus dihapus dulu.
+3. Tes satu top up sungguhan. Log harus `AUTO-SEND [bri-qris-transfer-dana-keluar]`
+   atau `AUTO-SEND [bri-ewallet-tanpa-rekening-pemilik-vidha]`. Baris pertama
+   yang muncul `AUTO-SEND (LEARNED)` berarti langkah 1 belum kena.
+4. Cek `tele_tabungan`: **tepat satu** baris, `bri.vidha` 200.000 `pinout`.
+
+**Tarik di HP vidha dulu, lalu HP pemakainya.** Alasannya bukan keraguan lagi
+- nama BRImo di kedua HP sudah dipastikan berbeda, jadi prio 65 dan 64 sama-sama
+aman di mana pun. Urutan tetap vidha dulu supaya yang pertama diuji adalah notif
+yang benar-benar benar-benar terjadi: struk aslinya sudah ada di tangan.
+
+1. HP vidha: Bersihkan Hasil Belajar, Aturan -> Tarik, tes satu top up, cek
+   `tele_tabungan` tepat satu baris `bri.vidha`.
+2. HP pemakainya: Bersihkan Hasil Belajar, Aturan -> Tarik, tes satu top up, cek
+   tepat satu baris `bri.ibu`.
+
+**Kalau di salah satu HP hasilnya `diam` padahal top up-nya jelas.** Baca baris
+`AUTODETECT [bri]:` di log dan bandingkan dengan empat syarat prio 64/65:
+`neither_account_known` (berarti rekening asal TIDAK terbaca - kalau terbaca,
+prio 92 yang yang seharusnya menang), `has:halo`, `has:<nama>`, dan kata kunci e-wallet.
+Hampir selalu penyebabnya salah satu dari empat itu, dan semuanya diperbaiki dari
+server tanpa build.
+
+**Yang kebetulan tidak jadi masalah.** Waktu event `05 Oktober 2026, 10:21:18
+WIB` terbaca, jadi `transactionSignature` tidak null dan guard anti catat ganda
+per transaksi tetap bekerja untuk notif ini. Kalau suatu saat notif BRImo datang tanpa waktu event, `transactionSignature` jadi null dan satu peristiwa bisa
+lolos dua kali - itu batas yang sudah diketahui, dan cara membedakannya tetap
+`amount` + tanggal transaksi, bukan tebakan.
+
+### W. Akun Default per Perangkat: Top Up Tanpa Rekening (2026-10-14)
+
+**Gejala.** Top up ShopeePay dari HP arif / HP vidha masih `diam`, walaupun v9
+sudah terpasang. Baris log:
+
+```
+SKIP (diam: diam: notif BRI tanpa rekening milik sendiri yang terbaca): BRImo
+12/10/2026 15:37:16 - Transaksi Top Up ShopeePay 089610360890 sebesar
+Rp200.000,00 BERHASIL. Info lebih lanjut hubungi Call Center BRI 1500017
+```
+
+**Akar.** v9 hanya dirancang untuk notif BRImo **bentuk panjang** yang memuat
+`Halo, <NAMA>` dan `0102 **** **** 530`. Notif di log ini **bentuk pendek** dan
+tidak memuat rekening **maupun** nama pemilik, jadi tiga syarat aturan 64/65
+(`has:halo`, `has:<nama>`, rekening) semuanya gagal, dan evaluasi jatuh ke prio
+60 `diam` (`stop`). Diperiksa sampai token terkecil: satu-satunya token yang
+berubah adalah nomor dompet `089610360890`, dan itu menandai dompet tujuan,
+bukan rekening sumber - top up yang sama bisa dibiayai rekening ibu maupun
+vidha. Jadi **tidak ada penanda unik di teks**.
+
+**Keputusan.** Pembedanya dari **perangkat**, bukan dari teks. Akun default
+disimpan per-HP di SharedPreferences (`device_account`), **terpisah** dari
+`rules.json`. Ini penting: kalau disimpan sebagai edit aturan lokal, tarikan
+aturan server berikutnya akan diblokir (`user_edited`), dan user minta
+setelah ini semua penyesuaian cukup dari server.
+
+**Kode (satu build, sekali).**
+
+- `Config.deviceAccount()` / `Config.setDeviceAccount()` - baca/tulis setelan
+  perangkat.
+- `Rule.render(tx, accounts, deviceDefault)` - `{id}` jatuh ke `defaultId`,
+  lalu ke `deviceDefault`, baru menyerah (`null` -> tetap diam).
+- `RuleEngine.decide/evaluate/explain` meneruskan `deviceDefault`.
+- `NotifService` dan `MainActivity` (Pindai AI, uji coba Aturan) meneruskan
+  `Config.deviceAccount(this)`.
+- Kolom baru "Akun Default HP Ini" di layar utama.
+
+**Data (`rules.json` v10, dari server).** Satu aturan, prio 63 - di atas `diam`
+(60), di bawah aturan kaya (64/65):
+
+```json
+{
+  "id": "bri-ewallet-tanpa-rekening-akun-perangkat",
+  "name": "top up e-wallet tanpa rekening: pakai akun default HP ini",
+  "bank": "bri", "priority": 63, "enabled": true,
+  "when": [
+    "neither_account_known",
+    "has_any:top up|topup|top-up|isi saldo",
+    "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+    "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+  ],
+  "command": "/tabout {id} {amount}"
+}
+```
+
+**Penjaga yang tidak boleh dibalik.** Kalau akun default kosong, `render`
+mengembalikan `null` -> aturan tidak match -> jatuh ke `diam` (perilaku lama,
+bukan menebak). `neither_account_known` menjaga notif yang rekeningnya terbaca
+tetap ditangani aturan rekening, bukan ditulis ulang ke akun perangkat.
+`has_none:masuk|...` menjaga refund/pencairan tidak jadi pengeluaran.
+`isSendable` tetap gerbang terakhir, jadi akun default yang salah ketik pun
+tidak lolos ke server.
+
+**Vocabulary tetap sah untuk APK tertua.** Token baru tidak ada; `has_any`,
+`has_none`, `neither_account_known` sudah ada sejak `d277193`. APK lama tetap
+menerima file v10 dan berperilaku seperti sebelumnya (notif pendek `diam`),
+karena `render` lama tidak mengenal `deviceDefault`.
+
+**Verifikasi.** Environment ini tidak punya JDK/Android SDK, jadi tidak ada
+kompilasi. Yang dilakukan: `rules.json` di-parse (18 aturan, versi 10),
+kurung seimbang setelah komentar/string dibuang (selisih Rule.kt sama dengan
+sebelum perubahan), scan teks korup bersih, cross-check anggota `Config.x`
+yang dipanggil, dan port `RuleSet`/`decide`/`render` ke Python lalu 7 kasus
+dijalankan (pendek tanpa default -> null; pendek dengan default ibu/vidha ->
+`/tabout bri.ibu|bri.vidha`; notif kaya tetap vidha walau default ibu;
+pindahin tidak tertimpa default; dana masuk e-wallet tetap diam) - semua
+lulus. **Bentuk, bukan bukti kompilasi.**
+
+**Deploy.** Backup `rules.json.bak-20261014-010837` di `dn-arif`, lalu scp v10.
+Curl ke `https://tools.websolusi.com/telegram/rules.json` mengembalikan
+`version: 10`, 18 aturan, id baru ada, dan identik dengan salinan repo.
+
+**Langkah di HP.** Pasang APK baru, lalu di tiap HP isi **Akun Default HP Ini**
+(`bri.ibu` di HP ibu, `bri.vidha` di HP vidha), **Aturan -> Tarik**, lalu tes
+satu top up pendek. Log harus `AUTO-SEND [bri-ewallet-tanpa-rekening-akun-perangkat]`.
+
+---
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 
@@ -1108,7 +1400,7 @@ ditolak, dan itu justru bukti bahwa pencatatan model itu berguna.
 ## 7. Playbook: Keputusan yang Berulang Salah Jadi Data, Bukan Kode
 
 Bagian ini bukan catatan kejadian, tapi resep yang bisa dipakai lagi di proyek
-mana pun. Semuanya berasal dari refactor yang ari di bagian 5J.
+mana pun. Semuanya berasal dari refactor yang muncul di bagian 5J.
 
 ### 7.1 Kapan pola ini tepat
 

@@ -23,13 +23,13 @@ object RuleEngine {
         val considered: Int = 0
     )
 
-    fun decide(parsed: Parsed, set: RuleSet): Decision {
+    fun decide(parsed: Parsed, set: RuleSet, deviceDefault: String? = null): Decision {
         var considered = 0
         for (rule in set.activeFor(parsed.bank)) {
             if (!rule.matches(parsed, set.accounts)) continue
             considered++
             if (rule.stop) return Decision(null, rule, considered)
-            val cmd = rule.render(parsed, set.accounts) ?: continue
+            val cmd = rule.render(parsed, set.accounts, deviceDefault) ?: continue
             if (!isSendable(cmd, set.knownIds)) continue
             return Decision(
                 Outcome(cmd, rule.direction(), rule.id, rule.name),
@@ -41,7 +41,8 @@ object RuleEngine {
     }
 
     /** Bentuk ringkas untuk jalur otomatis. */
-    fun evaluate(parsed: Parsed, set: RuleSet): Outcome? = decide(parsed, set).outcome
+    fun evaluate(parsed: Parsed, set: RuleSet, deviceDefault: String? = null): Outcome? =
+        decide(parsed, set, deviceDefault).outcome
 
     /**
      * Gerbang terakhir sebelum dikirim ke server. Tidak ada command yang lolos
@@ -68,11 +69,11 @@ object RuleEngine {
     }
 
     /** Ringkasan dry-run untuk layar Aturan. */
-    fun explain(parsed: Parsed, set: RuleSet): String {
+    fun explain(parsed: Parsed, set: RuleSet, deviceDefault: String? = null): String {
         val src = parsed.source?.let { "$it -> ${set.accounts[it] ?: "?"}" } ?: "?"
         val dst = parsed.destination?.let { "$it -> ${set.accounts[it] ?: "?"}" } ?: "?"
         val head = "${parsed.bank}  Rp${parsed.amount}\n    asal    = $src\n    tujuan  = $dst"
-        val d = decide(parsed, set)
+        val d = decide(parsed, set, deviceDefault)
         return when {
             d.outcome != null -> "$head\n    HASIL   = ${d.outcome.command}\n    aturan  = ${d.outcome.ruleName}"
             d.stoppedBy != null -> "$head\n    HASIL   = diam (sengaja)\n    aturan  = ${d.stoppedBy.name}"

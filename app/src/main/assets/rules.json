@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 10,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
@@ -44,6 +44,20 @@
       "stop": true
     },
     {
+      "id": "bri-qris-transfer-dana-keluar",
+      "name": "QRIS / e-wallet: dana keluar dari rekening sendiri, tujuan tidak disebut",
+      "bank": "bri",
+      "priority": 92,
+      "enabled": true,
+      "when": [
+        "src_own",
+        "not:dst_known",
+        "has_any:qris|qr|qr code|kode qr|scan qr|scan qrcode|shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|ewallet|e-wallet|dompet",
+        "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+      ],
+      "command": "/tabout {id} {amount}"
+    },
+    {
       "id": "bri-dana-keluar-dari-rekening-sendiri",
       "name": "dana keluar dari rekening sendiri",
       "bank": "bri",
@@ -80,6 +94,50 @@
       "when": ["dst_own", "has:transfer", "not:src_known"],
       "command": "",
       "stop": true
+    },
+    {
+      "id": "bri-ewallet-tanpa-rekening-pemilik-ibu",
+      "name": "top up e-wallet tanpa rekening terbaca: pemilik di notif = ibu",
+      "bank": "bri",
+      "priority": 64,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has:halo",
+        "has:nurhasanah",
+        "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+        "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+      ],
+      "command": "/tabout bri.ibu {amount}"
+    },
+    {
+      "id": "bri-ewallet-tanpa-rekening-pemilik-vidha",
+      "name": "top up e-wallet tanpa rekening terbaca: pemilik di notif = vidha",
+      "bank": "bri",
+      "priority": 65,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has:halo",
+        "has:mufidatul ummah",
+        "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+        "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+      ],
+      "command": "/tabout bri.vidha {amount}"
+    },
+    {
+      "id": "bri-ewallet-tanpa-rekening-akun-perangkat",
+      "name": "top up e-wallet tanpa rekening: pakai akun default HP ini",
+      "bank": "bri",
+      "priority": 63,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:top up|topup|top-up|isi saldo",
+        "has_any:shopeepay|shopee pay|gopay|go-pay|ovo|linkaja|link aja|qris|wallet|e-wallet|ewallet|dompet",
+        "has_none:masuk|kredit|menerima|diterima|received|incoming|credit"
+      ],
+      "command": "/tabout {id} {amount}"
     },
     {
       "id": "bri-diam-tanpa-rekening-terbaca",
