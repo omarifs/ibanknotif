@@ -1384,6 +1384,40 @@ Curl ke `https://tools.websolusi.com/telegram/rules.json` mengembalikan
 (`bri.ibu` di HP ibu, `bri.vidha` di HP vidha), **Aturan -> Tarik**, lalu tes
 satu top up pendek. Log harus `AUTO-SEND [bri-ewallet-tanpa-rekening-akun-perangkat]`.
 
+### X. Double POST: Outbox Resend Command yang Sudah Terkirim (2026-11-03)
+
+**Gejala.** Log HP menunjukkan satu transaksi top up ShopeePay Rp200.000
+tercatat dua kali:
+
+```
+07:37:53 POST /tabout bri.ibu 200000 → 200
+07:37:55 POST /tabout bri.ibu 200000 → 200
+```
+
+Dua baris `POST → 200` berjarak 2 detik, command sama persis.
+
+**Akar masalah.** `kirim()` di `NotifService.kt` selalu menjadwalkan
+`flushOutbox()` 8 detik kemudian. Fungsi `flushOutbox()` mengirim ulang
+**seluruh** isi outbox tanpa mengecek command mana yang sudah terkirim.
+Alur:
+
+1. Notif BRImo datang → `submit()` → `kirim()` → `enqueueOutbox` + `Sink.send`
+   → POST pertama sukses
+2. `flushRunnable` 8 detik kemudian → `flushOutbox()` → baca outbox →
+   command sama masih ada → `Sink.send` lagi → POST kedua
+3. Server menerima keduanya karena `dedupKey` berbeda per notifikasi
+   (`postTime` beda di setiap notif)
+
+**Perbaikan (`NotifService.kt`, commit `87c56e3`).** Tambah field
+`sentCommands` (`synchronizedSet<String>`), catat command saat `kirim()`
+dipanggil, lalu `flushOutbox()` filter dengan
+`filterNot { sentCommands.contains(it.command) }`. Hanya command yang memang
+belum terkirim yang di-POST ulang. Sisa outbox yang belum terkirim tetap
+disimpan untuk recovery proses mati.
+
+**Yang tidak berubah.** Dedup server (`claim_dedup_key`), Pairer,
+`markProcessed`, aturan klasifikasi, dan `rules.json` tidak disentuh.
+
 ---
 
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
