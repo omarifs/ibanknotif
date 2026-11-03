@@ -28,6 +28,9 @@ class NotifService : NotificationListenerService() {
     /** Penjadwalan pembuangan sisi [Pairer] yang sudah lewat jendela. */
     private val flushHandler = Handler(Looper.getMainLooper())
 
+    /** Command yang sudah terkirim di proses ini, untuk mencegah kirim ulang. */
+    private val sentCommands = java.util.Collections.synchronizedSet(HashSet<String>())
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         instance = this
@@ -204,6 +207,7 @@ class NotifService : NotificationListenerService() {
      * menyimpan command dan dikirim ulang saat aplikasi dibuka.
      */
     private fun kirim(command: String, dedupKey: String?) {
+        sentCommands.add(command)
         Sink.send(this, command, dedupKey)
         flushHandler.removeCallbacks(flushRunnable)
         flushHandler.postDelayed(flushRunnable, 8000L)
@@ -238,11 +242,17 @@ class NotifService : NotificationListenerService() {
     private fun flushExpired() {
         val outbox = Config.loadOutbox(this)
         if (outbox.isNotEmpty()) {
-            outbox.forEach { item ->
+            val belum = outbox.filterNot { sentCommands.contains(it.command) }
+            belum.forEach { item ->
                 Config.appendLog(this, "KIRIM ULANG (outbox): ${item.command}")
                 Sink.send(this, item.command, item.dedupKey)
             }
-            Config.saveOutbox(this, emptyList())
+            // Hapus yang sudah terkirim di proses ini; simpan sisa untuk recovery
+            if (belum.size < outbox.size) {
+                Config.saveOutbox(this, belum)
+            } else {
+                Config.saveOutbox(this, emptyList())
+            }
         }
 
         val cfg = RuleStore.load(this).pairs
