@@ -1420,6 +1420,57 @@ disimpan untuk recovery proses mati.
 
 ---
 
+### Y. Transfer bri.ibu <-> bri.vidha Tercatat Dua Kali: Diam di Sisi Penerima (2026-11-08)
+
+**Gejala.** Satu transfer ibu -> vidha Rp2.000.000 menghasilkan tiga baris:
+
+```
+607 in     bri vidha  +2.000.000   <- HP vidha kirim /tabin   (20:44:16)
+608 pinout bri ibu    -2.000.000   <- HP ibu kirim /pindahin  (20:44:29)
+609 pinin  bri vidha  +2.000.000   <- efek /pindahin yang sama
+```
+
+Vidha tercatat dua kali, dan `in` ikut masuk saldo padahal transfer antar
+rekening sendiri tidak boleh dihitung ke total tabungan.
+
+**Kenapa bukan bug kode.** Kedua notifikasi mendarat di **HP berbeda**: HP vidha
+hanya melihat `Dana Rp2.000.000 masuk`, HP ibu hanya melihat `Transfer dari
+8533 ke 5530`. Tidak ada state bersama di app, jadi tidak ada yang bisa
+membatalkan salah satunya dari sisi Android. `covered_by_pindahin()` di server
+juga tidak menolong karena arahnya satu arah: ia menahan `/tabin` kalau
+`/pindahin` **sudah ada**, sedangkan di sini `/tabin` tiba 13 detik lebih dulu.
+
+**Perbaikan: data, bukan kode.** Aturan baru di `rules.json` versi 11,
+priority 94 (di atas `bri-dana-masuk` 90 dan 20):
+
+```json
+{
+  "id": "bri-dana-masuk-dari-rekening-sendiri-diam",
+  "bank": "bri", "priority": 94, "stop": true, "command": "",
+  "when": ["dst_own", "not:src_known",
+           "has:nurhasanah", "has:mufidatul ummah",
+           "has_any:masuk|diterima|kredit"]
+}
+```
+
+Sisi penerima diam karena HP pengirim sudah mengirim `/pindahin` yang memuat
+kedua rekening. Hasil akhir hanya `pinout` + `pinin` - netral terhadap saldo,
+sesuai tujuan hitung total tabungan.
+
+**Kenapa aman.** Kondisi menuntut **kedua** nama pemilik ada di `KET` dan `src`
+tidak terbaca. Notif dana masuk dari Flip/BCA (`KET:.BFST...FLIPTECH`) tidak
+memuat nama itu, jadi tetap jadi `/tabin` seperti sebelumnya. Diuji dengan port
+Python atas empat teks notif nyata: dua arah transfer antar HP -> diam, bukti
+transfer pengirim -> tetap `/pindahin`, dana masuk Flip -> tetap `/tabin`.
+
+**Batasnya.** Kalau HP pengirim tidak pernah memproses notifikasinya (service
+mati permanen), tidak ada `pindahin` dan sisi penerima sudah dibungkam - transfer
+itu tidak tercatat sama sekali. Dalam praktik notif pengirim tetap terbaca lewat
+`CATCH-UP` saat app dibuka. Membatalkan aturan ini cukup dengan menghapusnya dan
+menaikkan `version`.
+
+---
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 

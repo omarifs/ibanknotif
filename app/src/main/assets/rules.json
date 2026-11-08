@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
@@ -40,6 +40,22 @@
       "priority": 95,
       "enabled": true,
       "when": ["src_own", "dst_own", "src_eq_dst"],
+      "command": "",
+      "stop": true
+    },
+    {
+      "id": "bri-dana-masuk-dari-rekening-sendiri-diam",
+      "name": "diam: dana masuk dari rekening sendiri di HP lain (sudah dicatat /pindahin di HP pengirim)",
+      "bank": "bri",
+      "priority": 94,
+      "enabled": true,
+      "when": [
+        "dst_own",
+        "not:src_known",
+        "has:nurhasanah",
+        "has:mufidatul ummah",
+        "has_any:masuk|diterima|kredit"
+      ],
       "command": "",
       "stop": true
     },
