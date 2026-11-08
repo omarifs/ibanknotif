@@ -81,7 +81,7 @@ class NotifService : NotificationListenerService() {
 
         val bank = Config.bankLabel(pkg) ?: detectBankFromTitle(title) ?: return
 
-        if (!Config.isBankEnabledByLabel(bank)) return
+        if (!Config.isBankEnabledByLabel(this, bank)) return
 
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()

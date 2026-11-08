@@ -230,9 +230,9 @@ class MainActivity : AppCompatActivity() {
         etDeviceAccount.setText(Config.deviceAccount(this) ?: "")
         etApiKey.setText(Learning.apiKey(this))
         etCustomPrompt.setText(Learning.customPrompt(this))
-        cbBca.isChecked = true
-        cbMandiri.isChecked = true
-        cbBri.isChecked = true
+        cbBca.isChecked = Config.isBankEnabledByLabel(this, "bca")
+        cbMandiri.isChecked = Config.isBankEnabledByLabel(this, "mandiri")
+        cbBri.isChecked = Config.isBankEnabledByLabel(this, "bri")
     }
 
     private fun saveConfig() {

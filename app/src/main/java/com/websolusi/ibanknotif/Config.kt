@@ -38,24 +38,17 @@ object Config {
 
     fun bankLabel(pkg: String): String? = PatternStore.bankLabel(pkg)
 
-    fun isBankEnabled(ctx: Context, pkg: String): Boolean {
+    fun isBankEnabled(ctx: Context, pkg: String): Boolean =
+        bankLabel(pkg)?.let { isBankEnabledByLabel(ctx, it) } ?: false
+
+    fun isBankEnabledByLabel(ctx: Context, label: String): Boolean {
         val p = prefs(ctx)
-        val label = bankLabel(pkg) ?: return false
         return when (label) {
             "bca" -> p.getBoolean(KEY_BCA, true)
             "mandiri" -> p.getBoolean(KEY_MANDIRI, true)
             "bri" -> p.getBoolean(KEY_BRI, true)
             // Bank yang belum punya tombol di UI: aktifkan. Menolaknya berarti
             // bank yang baru ditambah lewat patterns.json tidak akan pernah jalan.
-            else -> true
-        }
-    }
-
-    fun isBankEnabledByLabel(label: String): Boolean {
-        return when (label) {
-            "bca" -> true
-            "mandiri" -> true
-            "bri" -> true
             else -> true
         }
     }
