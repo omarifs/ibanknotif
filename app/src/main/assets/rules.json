@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "accounts": {
     "8533": "bri.ibu",
     "5530": "bri.vidha"
@@ -156,6 +156,82 @@
       "command": "/tabout {id} {amount}"
     },
     {
+      "id": "bri-tarik-tunai-tanpa-rekening-pemilik-ibu",
+      "name": "tarik tunai tanpa rekening terbaca: pemilik di notif = ibu",
+      "bank": "bri",
+      "priority": 75,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:tarik tunai|tarik atm|penarikan tunai|penarikan|withdrawal|withdraw",
+        "has:nurhasanah"
+      ],
+      "command": "/tabout bri.ibu {amount}"
+    },
+    {
+      "id": "bri-tarik-tunai-tanpa-rekening-pemilik-vidha",
+      "name": "tarik tunai tanpa rekening terbaca: pemilik di notif = vidha",
+      "bank": "bri",
+      "priority": 74,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:tarik tunai|tarik atm|penarikan tunai|penarikan|withdrawal|withdraw",
+        "has:mufidatul ummah"
+      ],
+      "command": "/tabout bri.vidha {amount}"
+    },
+    {
+      "id": "bri-tarik-tunai-tanpa-rekening-akun-perangkat",
+      "name": "tarik tunai tanpa rekening: pakai akun default HP ini",
+      "bank": "bri",
+      "priority": 73,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:tarik tunai|tarik atm|penarikan tunai|penarikan|withdrawal|withdraw"
+      ],
+      "command": "/tabout {id} {amount}"
+    },
+    {
+      "id": "bri-setor-tunai-tanpa-rekening-pemilik-ibu",
+      "name": "setor tunai tanpa rekening terbaca: pemilik di notif = ibu",
+      "bank": "bri",
+      "priority": 72,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:setor tunai|setoran tunai|setoran|setor|deposit|cash deposit",
+        "has:nurhasanah"
+      ],
+      "command": "/tabin bri.ibu {amount}"
+    },
+    {
+      "id": "bri-setor-tunai-tanpa-rekening-pemilik-vidha",
+      "name": "setor tunai tanpa rekening terbaca: pemilik di notif = vidha",
+      "bank": "bri",
+      "priority": 71,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:setor tunai|setoran tunai|setoran|setor|deposit|cash deposit",
+        "has:mufidatul ummah"
+      ],
+      "command": "/tabin bri.vidha {amount}"
+    },
+    {
+      "id": "bri-setor-tunai-tanpa-rekening-akun-perangkat",
+      "name": "setor tunai tanpa rekening: pakai akun default HP ini",
+      "bank": "bri",
+      "priority": 70,
+      "enabled": true,
+      "when": [
+        "neither_account_known",
+        "has_any:setor tunai|setoran tunai|setoran|setor|deposit|cash deposit"
+      ],
+      "command": "/tabin {id} {amount}"
+    },
+    {
       "id": "bri-diam-tanpa-rekening-terbaca",
       "name": "diam: notif BRI tanpa rekening milik sendiri yang terbaca",
       "bank": "bri",
@@ -183,7 +259,7 @@
       "bank": "bri",
       "priority": 20,
       "enabled": true,
-      "when": ["has_any:masuk|kredit|menerima|diterima|received|incoming|credit"],
+      "when": ["has_any:masuk|kredit|menerima|diterima|received|incoming|credit|setor tunai|setoran|setor"],
       "command": "/tabin {id} {amount}"
     },
     {
@@ -193,7 +269,7 @@
       "priority": 10,
       "enabled": true,
       "when": [
-        "has_any:keluar|debit|transfer|bayar|beli|sent|transferred|potong|tagihan|pembayaran|withdrawal|tarik|pengiriman|dikirim|terkirim|outgoing|payment|purchase|spent|top up|topup|top-up|isi saldo"
+        "has_any:keluar|debit|transfer|bayar|beli|sent|transferred|potong|tagihan|pembayaran|withdrawal|tarik|penarikan|pengiriman|dikirim|terkirim|outgoing|payment|purchase|spent|top up|topup|top-up|isi saldo"
       ],
       "command": "/tabout {id} {amount}"
     },

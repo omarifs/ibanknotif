@@ -1471,6 +1471,59 @@ menaikkan `version`.
 
 ---
 
+### Z. Tarik/Setor Tunai Tanpa Rekening dan Toggle Bank yang Mati (2026-11-08)
+
+**Tarik tunai yang sudah jalan.** Penarikan Rp2.000.000 dari `bri.vidha` pukul
+19:38:53 tercatat sebagai baris `604 out bri vidha`. Saat itu server masih
+`rules.json` versi 10, tetapi jalur tarik tunai tidak berubah di versi 11: aturan
+prio 91 dan 10 sama. Jadi penarikan yang notifnya menyebut nomor rekening memang
+sudah aman sejak sebelum perubahan hari ini.
+
+**Celah yang ditemukan.** Aturan `bri-dana-keluar` (prio 10) mencari kata
+`tarik`, sedangkan `"penarikan"` **tidak mengandung** substring `"tarik"`
+(pe-na-ri-kan). Simulasi:
+
+```
+"Tarik Tunai"     + rekening  -> /tabout bri.vidha   (aman)
+"Penarikan Tunai" + rekening  -> tidak ada aturan    (hilang)
+"Penarikan Tunai" tanpa rekening -> DIAM
+```
+
+Selain itu, penarikan tanpa nomor rekening selalu kena
+`bri-diam-tanpa-rekening-terbaca` (prio 60), meski nama pemilik ada di notif.
+
+**Perbaikan versi 12 (data saja).** Tiga lapis:
+
+1. Prio 10 ditambah kata `penarikan`.
+2. Prio 75/74/73: tarik tunai tanpa rekening, memakai nama pemilik
+   (`nurhasanah` -> `bri.ibu`, `mufidatul ummah` -> `bri.vidha`), lalu Akun
+   Default HP Ini sebagai cadangan. Semua di atas prio 60, jadi tidak lagi diam.
+3. Prio 72/71/70: setor tunai dengan pola yang sama, arah `in`. Prio 20 juga
+   ditambah kata `setor tunai|setoran|setor`.
+
+Kalau Akun Default kosong dan nama tidak ada, render `{id}` mengembalikan null,
+aturan dilewati, dan prio 60 tetap membungkam - perilaku lama tidak berubah.
+
+Diuji dengan port Python: 14 kasus lulus, termasuk empat regresi (pindahin antar
+HP, dana masuk rekening sendiri, Flip, transfer keluar, top up e-wallet).
+Validator: 25 aturan, semua sah, tidak ada priority bentrok.
+
+**Toggle bank ternyata mati.** `Config.isBankEnabledByLabel()` selalu
+mengembalikan `true`, dan `NotifService` memakai fungsi itu - bukan
+`isBankEnabled()` yang membaca prefs. `MainActivity.loadConfig()` juga selalu
+mencentang ketiga bank. Patch kode (belum bisa dipasang karena build terkunci):
+`isBankEnabledByLabel` membaca `KEY_BCA/KEY_MANDIRI/KEY_BRI`, pemanggil di
+`NotifService` dan `loadConfig` memakai versi ber-`Context` itu. Ini tidak bisa
+diselesaikan lewat `rules.json` karena toggle bersifat per-HP, sedangkan
+`rules.json` dipakai bersama.
+
+**Batasnya.** Aturan nama pemilik hanya menyala saat `neither_account_known`;
+kalau rekening terbaca, prio 10/20 yang menangani. Isi Akun Default HP Ini
+dengan benar di kedua HP: kalau salah, penarikan tanpa nama akan masuk ke
+rekening yang salah.
+
+---
+
 ## 6. Daftar Perintah Telegram yang Didukung Handler PHP
 
 
